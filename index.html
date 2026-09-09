@@ -275,18 +275,9 @@
               </div>
             </div>
 
-            <!-- AI Multi-Farmer Shortfall Alert Box (Shows if demanded qty > single farmer stock) -->
-            <div id="shortfall-alert-box" class="bg-amber-50 border border-amber-300 rounded-xl p-3 text-xs space-y-1.5 hidden">
-              <div class="flex items-center space-x-2 text-amber-900 font-black">
-                <i class="fa-solid fa-microchip text-amber-600"></i>
-                <span>AI Multi-Farmer Yield Pooling Triggered!</span>
-              </div>
-              <p class="text-[11px] text-amber-800" id="shortfall-explanation">
-                Primary farmer stock is less than requested. AI has pooled remaining harvest from neighboring farms with shared logistics!
-              </p>
-              <div id="pooled-farmers-pills" class="flex flex-wrap gap-1 pt-1">
-                <!-- Injected via JS -->
-              </div>
+            <!-- AI Multi-Farmer Shortfall & Route Figuring in Configure Order Section -->
+            <div id="configure-order-route-panel" class="rounded-xl border border-amber-300 bg-amber-50/70 p-3.5 space-y-3 text-xs hidden transition-all">
+              <!-- Dynamically populated via JS: Stops timeline, contributing farmers table, and 40%/60% payout breakdown -->
             </div>
 
             <!-- Automated Transport Vehicle (Assigned Automatically by Weight) -->

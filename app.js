@@ -913,14 +913,19 @@ async function handleQuantityInputChange() {
   if (!selectedProduce) return;
 
   const qty = parseFloat(document.getElementById('order-qty').value) || 0;
-  const shortfallBox = document.getElementById('shortfall-alert-box');
-  const explanation = document.getElementById('shortfall-explanation');
-  const pillsContainer = document.getElementById('pooled-farmers-pills');
+  const routePanel = document.getElementById('configure-order-route-panel');
 
   // Check if demanded quantity exceeds primary farmer's stock!
   if (qty > selectedProduce.availableKg) {
-    shortfallBox.classList.remove('hidden');
-    explanation.innerText = `Requested ${qty}kg exceeds ${selectedProduce.farmerName}'s harvest of ${selectedProduce.availableKg}kg. AI is pooling neighboring farms with shared route logistics...`;
+    if (routePanel) {
+      routePanel.classList.remove('hidden');
+      routePanel.innerHTML = `
+        <div class="p-3 text-center text-amber-800 animate-pulse font-semibold flex items-center justify-center space-x-2">
+          <i class="fa-solid fa-spinner fa-spin"></i>
+          <span>Computing AI multi-stop collection route & pooling harvest...</span>
+        </div>
+      `;
+    }
 
     try {
       const res = await fetch('/api/ai/multi-farmer-aggregation', {
@@ -929,22 +934,139 @@ async function handleQuantityInputChange() {
         body: JSON.stringify({
           cropName: selectedProduce.name,
           demandedQuantityKg: qty,
-          primaryFarmerId: selectedProduce.farmerId
+          primaryFarmerId: selectedProduce.farmerId,
+          deliveryAddress: currentDeliveryLocation.name,
+          deliveryLat: currentDeliveryLocation.lat,
+          deliveryLng: currentDeliveryLocation.lng
         })
       });
       const data = await res.json();
       if (data.success && data.isMultiFarmerPooled) {
         currentShortfallData = data;
-        pillsContainer.innerHTML = data.contributingFarmers.map(f => `
-          <span class="bg-amber-200 text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400">
-            ${f.name}: ${f.allocatedKg}kg (₹${f.farmerPayoutINR})
-          </span>
-        `).join('');
-        explanation.innerText = data.summaryMessage;
+
+        if (routePanel) {
+          routePanel.innerHTML = `
+            <!-- Header -->
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-300 pb-2.5">
+              <div class="flex items-center space-x-2">
+                <span class="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                  <i class="fa-solid fa-route"></i>
+                </span>
+                <div>
+                  <div class="font-extrabold text-amber-950 text-xs flex items-center space-x-2">
+                    <span>AI Multi-Farmer Yield Pooling & Route Figuring</span>
+                    <span class="bg-amber-200 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-400">LIVE</span>
+                  </div>
+                  <div class="text-[10px] text-amber-800">Order pooled across ${data.contributingFarmersCount} nearby farms • ${data.totalStops} Total Stops</div>
+                </div>
+              </div>
+              <span class="bg-amber-100 text-amber-900 font-extrabold text-xs px-2.5 py-1 rounded-lg border border-amber-300">
+                🚚 ${data.totalStops} Stops (${data.farmStopsCount} Pickups + 1 Delivery)
+              </span>
+            </div>
+
+            <!-- Explanation -->
+            <p class="text-[11px] text-amber-900 leading-relaxed">
+              Primary farmer (${selectedProduce.farmerName}) has <strong>${selectedProduce.availableKg}kg</strong> harvest. AI has aggregated the remaining <strong>${qty - selectedProduce.availableKg}kg</strong> from ${data.contributingFarmersCount - 1} neighboring cluster farms to fulfill your ${qty}kg order.
+            </p>
+
+            <!-- Stops Sequence Timeline (Where the truck stops and how many times) -->
+            <div class="space-y-1.5 pt-1">
+              <div class="text-[10px] font-black uppercase text-amber-900 tracking-wider flex items-center justify-between">
+                <span>Truck Collection Stops Sequence:</span>
+                <span class="font-mono text-amber-800">${data.totalRouteDistanceKm} km Route (~${data.estimatedTransitTime})</span>
+              </div>
+              <div class="space-y-2">
+                ${data.allStops.map(s => `
+                  <div class="bg-white/90 p-2.5 rounded-xl border border-amber-200 flex items-start space-x-2.5 shadow-sm">
+                    <span class="w-6 h-6 rounded-full ${s.type === 'FARM_PICKUP' ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'} flex items-center justify-center font-black text-xs flex-shrink-0 mt-0.5">
+                      ${s.stopNumber}
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center justify-between">
+                        <span class="font-bold text-slate-800 text-xs truncate">
+                          ${s.type === 'FARM_PICKUP' ? `Pickup: ${s.farmerName} (${s.fpoAffiliation || 'Independent'})` : `Final Delivery: Customer Doorstep`}
+                        </span>
+                        <span class="font-mono font-bold text-[11px] ${s.type === 'FARM_PICKUP' ? 'text-amber-800' : 'text-emerald-700'}">
+                          ${s.type === 'FARM_PICKUP' ? `+${s.collectKg}kg (${s.percentage}%)` : `${s.deliverKg}kg Delivered`}
+                        </span>
+                      </div>
+                      <div class="text-[10px] text-slate-500 mt-0.5">
+                        <i class="fa-solid fa-location-dot text-slate-400 mr-1"></i>${s.type === 'FARM_PICKUP' ? (s.village || s.location) : s.destination}
+                      </div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+
+            <!-- Contributing Farmers & 40% Advance / 60% Balance Distribution Table -->
+            <div class="pt-2">
+              <div class="text-[10px] font-black uppercase text-amber-900 tracking-wider mb-1.5 flex items-center justify-between">
+                <span>Farmer Yield Share & Payment Distribution:</span>
+                <span class="text-emerald-800 font-bold">40% Immediate + 60% On Delivery</span>
+              </div>
+              <div class="overflow-x-auto rounded-xl border border-amber-200 bg-white">
+                <table class="w-full text-left text-[11px]">
+                  <thead class="bg-amber-100/70 text-amber-950 font-bold border-b border-amber-200 text-[10px]">
+                    <tr>
+                      <th class="p-2">Farmer & FPO</th>
+                      <th class="p-2 text-center">Crop Sold</th>
+                      <th class="p-2 text-right">40% Advance (Immediate)</th>
+                      <th class="p-2 text-right">60% Balance (On Delivery)</th>
+                      <th class="p-2 text-right">Total (100%)</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    ${data.contributingFarmers.map(f => `
+                      <tr>
+                        <td class="p-2">
+                          <div class="font-bold text-slate-800">${f.name}</div>
+                          <div class="text-[9px] text-amber-800">${f.fpoAffiliation || 'Independent'} • ${f.village || ''}</div>
+                        </td>
+                        <td class="p-2 text-center font-bold text-slate-700">
+                          ${f.allocatedKg} kg
+                          <span class="text-[9px] text-slate-400 block font-normal">(${f.percentage}%)</span>
+                        </td>
+                        <td class="p-2 text-right font-bold text-emerald-700">
+                          ₹${f.advancePayoutINR.toLocaleString()}
+                          <span class="text-[9px] text-emerald-600 block font-normal">Direct to UPI</span>
+                        </td>
+                        <td class="p-2 text-right font-bold text-amber-700">
+                          ₹${f.balancePayoutINR.toLocaleString()}
+                          <span class="text-[9px] text-amber-600 block font-normal">On Delivery OTP</span>
+                        </td>
+                        <td class="p-2 text-right font-black text-slate-900">
+                          ₹${f.farmerPayoutINR.toLocaleString()}
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              <p class="text-[10px] text-amber-800 mt-1.5 italic">
+                ✓ <strong>Direct Fair Payment:</strong> 40% of each farmer's share is transferred to their bank UPI immediately upon checkout. The remaining 60% is settled upon delivery OTP verification.
+              </p>
+            </div>
+
+            <!-- Google Maps Multi-Stop Navigation Link -->
+            <div class="pt-1 flex items-center justify-between border-t border-amber-200">
+              <span class="text-[10px] text-amber-900 font-semibold">Inspect driving navigation for all stops:</span>
+              <a href="${data.googleMapsRouteUrl}" target="_blank" rel="noopener noreferrer" class="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition flex items-center space-x-1.5 text-xs">
+                <i class="fa-brands fa-google"></i>
+                <span>View Multi-Stop Route in Google Maps</span>
+                <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+              </a>
+            </div>
+          `;
+        }
       }
     } catch (err) {}
   } else {
-    shortfallBox.classList.add('hidden');
+    if (routePanel) {
+      routePanel.classList.add('hidden');
+      routePanel.innerHTML = '';
+    }
     currentShortfallData = null;
   }
 
@@ -1635,20 +1757,61 @@ function renderOrdersList() {
           </div>
         </div>
 
-        <!-- If Multi-Farmer Pooled: Show Breakdown -->
+        <!-- Multi-Farmer Shared Pickup & Two-Tier Payout Status Table -->
         ${o.isMultiFarmerPooled && o.pooledContributors && o.pooledContributors.length > 1 ? `
-          <div class="bg-amber-50/80 p-3 rounded-xl border border-amber-200 text-xs space-y-1">
-            <div class="font-bold text-amber-900 flex items-center">
-              <i class="fa-solid fa-people-carry-box text-amber-700 mr-1.5"></i>
-              Multi-Farmer Shared Pickup Breakdown (Fulfilling Harvest Shortfall):
+          <div class="bg-amber-50/90 p-3.5 rounded-xl border border-amber-300 text-xs space-y-2.5">
+            <div class="flex items-center justify-between font-extrabold text-amber-950">
+              <span class="flex items-center"><i class="fa-solid fa-people-carry-box text-amber-700 mr-1.5"></i> Multi-Farmer Harvest Allocation & Distributed Payout Status:</span>
+              <span class="bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-[10px] font-black">${o.pooledContributors.length} Farms Pooled</span>
             </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-              ${o.pooledContributors.map(c => `
-                <div class="bg-white p-2 rounded-lg border text-[11px] flex justify-between items-center">
-                  <span><strong>${c.name}</strong> (${c.fpoAffiliation || 'Independent'})</span>
-                  <span class="text-emerald-700 font-bold">${c.allocatedKg}kg • ₹${c.farmerPayoutINR}</span>
-                </div>
-              `).join('')}
+            
+            <div class="overflow-x-auto rounded-lg border border-amber-200 bg-white">
+              <table class="w-full text-left text-[11px]">
+                <thead class="bg-amber-100/70 text-amber-950 font-bold border-b border-amber-200 text-[10px]">
+                  <tr>
+                    <th class="p-2">Contributing Farmer</th>
+                    <th class="p-2 text-center">Harvest Share</th>
+                    <th class="p-2 text-right">40% Advance (Immediate)</th>
+                    <th class="p-2 text-right">60% Balance (On Delivery)</th>
+                    <th class="p-2 text-right">Total Earnings</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${o.pooledContributors.map(c => {
+                    const advAmt = c.advancePayoutINR || Math.round((c.farmerPayoutINR || (c.allocatedKg * 35)) * 0.40);
+                    const balAmt = c.balancePayoutINR || ((c.farmerPayoutINR || (c.allocatedKg * 35)) - advAmt);
+                    const totalAmt = c.farmerPayoutINR || (c.allocatedKg * 35);
+                    const pct = c.percentage || Math.round((c.allocatedKg / o.quantityKg) * 100);
+                    const isBalSettled = Boolean(c.balanceStatus === 'SETTLED' || o.status === 'DELIVERED_PAID');
+
+                    return `
+                      <tr>
+                        <td class="p-2">
+                          <div class="font-bold text-slate-800">${c.name}</div>
+                          <div class="text-[9px] text-amber-800 font-medium">${c.fpoAffiliation || 'Independent'} • ${c.village || c.location || ''}</div>
+                        </td>
+                        <td class="p-2 text-center font-bold text-slate-700">
+                          ${c.allocatedKg} kg
+                          <span class="text-[9px] text-slate-400 block font-normal">(${pct}%)</span>
+                        </td>
+                        <td class="p-2 text-right">
+                          <span class="font-bold text-emerald-700">₹${advAmt.toLocaleString()}</span>
+                          <span class="text-[9px] text-emerald-800 bg-emerald-100 px-1 py-0.2 rounded block font-mono mt-0.5">✓ Disbursed</span>
+                        </td>
+                        <td class="p-2 text-right">
+                          <span class="font-bold ${isBalSettled ? 'text-emerald-700' : 'text-amber-700'}">₹${balAmt.toLocaleString()}</span>
+                          <span class="text-[9px] ${isBalSettled ? 'text-emerald-800 bg-emerald-100' : 'text-amber-800 bg-amber-100'} px-1 py-0.2 rounded block font-mono mt-0.5">
+                            ${isBalSettled ? '✓ Settled' : '⏳ On OTP'}
+                          </span>
+                        </td>
+                        <td class="p-2 text-right font-black text-slate-900">
+                          ₹${totalAmt.toLocaleString()}
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
             </div>
           </div>
         ` : ''}
