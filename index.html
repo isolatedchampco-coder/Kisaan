@@ -160,7 +160,7 @@
               </div>
             </div>
 
-            <!-- Quick Category Filter Pills -->
+            <!-- Quick Category Filter Pills & Nearby Villages Toggle -->
             <div class="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
               <span class="text-slate-400 font-bold text-[10px] uppercase tracking-wider mr-1">Filter:</span>
               <button onclick="setCategoryFilter('ALL')" data-category="ALL" class="category-filter-btn px-3 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-sm transition">
@@ -174,6 +174,10 @@
               </button>
               <button onclick="setCategoryFilter('Grain')" data-category="Grain" class="category-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition">
                 🌾 Grains & Pulses
+              </button>
+              <button id="filter-nearby-btn" onclick="toggleNearbyFilter()" class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition flex items-center space-x-1.5 flex-shrink-0">
+                <i class="fa-solid fa-location-crosshairs text-emerald-600 text-[11px]"></i>
+                <span id="filter-nearby-text">Nearby Villages (≤ 100 km)</span>
               </button>
             </div>
           </div>
@@ -191,6 +195,49 @@
               <i class="fa-solid fa-cart-shopping text-emerald-600 mr-2"></i> Configure Order
             </h3>
             <span id="selected-produce-badge" class="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-1 rounded-full">Select Produce</span>
+          </div>
+
+          <!-- Google Maps & Customer Delivery Location Picker -->
+          <div class="bg-slate-50 border-2 border-slate-200 rounded-xl p-3 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-extrabold text-slate-800 flex items-center">
+                <i class="fa-solid fa-map-location-dot text-rose-500 mr-1.5 text-sm"></i>
+                <span>Delivery Destination (Google Maps)</span>
+              </label>
+              <a id="btn-open-google-maps" href="https://www.google.com/maps/search/?api=1&query=20.0150,73.8050" target="_blank" class="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center">
+                <i class="fa-solid fa-arrow-up-right-from-square mr-1"></i> Google Maps
+              </a>
+            </div>
+
+            <!-- Quick Village / City Hub Preset Selector -->
+            <div>
+              <select id="delivery-hub-select" onchange="handleDeliveryHubSelect(this.value)" class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none">
+                <option value="nashik_city" data-lat="20.0150" data-lng="73.8050" data-name="Panchavati Market, Nashik - 422003" selected>📍 Panchavati Market, Nashik (Local Hub)</option>
+                <option value="dindori" data-lat="20.2012" data-lng="73.8315" data-name="Dindori Village Center, Nashik - 422202">🌾 Dindori Village Hub, Nashik</option>
+                <option value="sinnar" data-lat="19.8458" data-lng="73.9984" data-name="Sinnar Village Center, Nashik - 422103">🌾 Sinnar Village Hub, Nashik</option>
+                <option value="deolali" data-lat="19.9372" data-lng="73.8341" data-name="Deolali Camp, Nashik - 422401">📍 Deolali Camp, Nashik</option>
+                <option value="ozar" data-lat="20.0880" data-lng="73.9180" data-name="Ozar Agri Terminal, Nashik - 422206">📍 Ozar Agri Terminal, Nashik</option>
+                <option value="pune" data-lat="18.4900" data-lng="73.8700" data-name="APMC Market Yard, Pune - 411037">⚠️ Pune APMC (165 km - Beyond 100km Limit)</option>
+                <option value="mumbai" data-lat="19.0178" data-lng="72.8478" data-name="Dadar Vegetable Market, Mumbai - 400028">⚠️ Dadar Market, Mumbai (160 km - Beyond 100km Limit)</option>
+              </select>
+            </div>
+
+            <!-- Doorstep Address & GPS Auto-Locate Button -->
+            <div class="flex items-center space-x-2">
+              <input type="text" id="buyer-address" value="Panchavati Market, Nashik - 422003" oninput="handleAddressManualChange()" class="flex-1 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Enter doorstep delivery address..." required>
+              <button type="button" onclick="handleAutoDetectGps()" title="Auto-detect GPS coordinates" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold px-2.5 py-1.5 rounded-lg border border-emerald-300 transition flex items-center space-x-1 flex-shrink-0">
+                <i class="fa-solid fa-crosshairs text-emerald-700"></i>
+                <span class="hidden sm:inline">GPS</span>
+              </button>
+            </div>
+
+            <input type="hidden" id="delivery-lat" value="20.0150">
+            <input type="hidden" id="delivery-lng" value="73.8050">
+          </div>
+
+          <!-- Geofence & Farm Distance Status Banner -->
+          <div id="geofence-status-banner" class="rounded-xl p-3 text-xs space-y-1 transition-all">
+            <!-- Dynamically populated via JS based on distance to selected farmer's village -->
           </div>
 
           <form id="order-form" onsubmit="handleCreateOrder(event)" class="space-y-4">
@@ -274,7 +321,7 @@
             </div>
 
             <!-- Customer Details -->
-            <div class="space-y-2">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
                 <label class="block text-xs font-semibold text-slate-600">Customer Name</label>
                 <input type="text" id="buyer-name" value="Amit Sharma" class="w-full bg-slate-50 border rounded-lg px-3 py-1.5 text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none" required>
@@ -282,10 +329,6 @@
               <div>
                 <label class="block text-xs font-semibold text-slate-600">Customer Mobile Phone</label>
                 <input type="tel" id="buyer-phone" value="+919988776655" class="w-full bg-slate-50 border rounded-lg px-3 py-1.5 text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none" required>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-600">Delivery Destination Address</label>
-                <input type="text" id="buyer-address" value="APMC Market Yard, Pune - 411037" class="w-full bg-slate-50 border rounded-lg px-3 py-1.5 text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none" required>
               </div>
             </div>
 
@@ -369,11 +412,28 @@
               <span class="text-2xl">📈</span>
               <h2 class="text-xl font-black text-slate-900">AI Market Price & Demand Forecasting Engine</h2>
             </div>
-            <p class="text-xs text-slate-500">Real-time time-series predictive modeling based on Agmarknet Mandi arrivals and buyer demand elasticity.</p>
+            <p class="text-xs text-slate-500">Real-time predictive modeling based on Agmarknet Mandi arrivals and buyer demand elasticity across 12 major commodities.</p>
           </div>
           <span class="bg-amber-100 text-amber-900 text-xs font-black px-3 py-1 rounded-full border border-amber-300">
-            <i class="fa-solid fa-satellite-dish mr-1"></i> Live Mandi Sync
+            <i class="fa-solid fa-satellite-dish mr-1"></i> Live Mandi Sync (12 Items)
           </span>
+        </div>
+
+        <!-- AI Commodity Category Filter Pills -->
+        <div class="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
+          <span class="text-slate-400 font-bold text-[10px] uppercase tracking-wider mr-1">Category:</span>
+          <button onclick="filterAiForecasts('ALL')" id="ai-filter-ALL" class="ai-filter-btn px-3 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-sm transition">
+            All Commodities (12)
+          </button>
+          <button onclick="filterAiForecasts('Vegetable')" id="ai-filter-Vegetable" class="ai-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition">
+            🥦 Vegetables (4)
+          </button>
+          <button onclick="filterAiForecasts('Fruit')" id="ai-filter-Fruit" class="ai-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition">
+            🍎 Fruits (5)
+          </button>
+          <button onclick="filterAiForecasts('Grain')" id="ai-filter-Grain" class="ai-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition">
+            🌾 Grains & Oilseeds (3)
+          </button>
         </div>
 
         <div id="ai-forecast-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -400,6 +460,11 @@
               <option value="Fresh Organic Tomatoes">Fresh Organic Tomatoes</option>
               <option value="Alphonso Mangoes">Alphonso Mangoes</option>
               <option value="Nagpur Oranges">Nagpur Oranges</option>
+              <option value="Nashik Red Onions">Nashik Red Onions</option>
+              <option value="Fresh Farm Potatoes">Fresh Farm Potatoes</option>
+              <option value="Green Bananas">Green Bananas</option>
+              <option value="Guavas (Allahabad Safeda)">Guavas (Allahabad Safeda)</option>
+              <option value="Punjab Basmati Rice">Punjab Basmati Rice</option>
             </select>
           </div>
           <div>

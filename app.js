@@ -48,6 +48,15 @@ let currentSearchQuery = '';
 let activeSearchDropdownIndex = -1;
 let currentCategoryFilter = 'ALL';
 
+// Customer Delivery Location State (Google Maps Coordinates)
+let currentDeliveryLocation = {
+  name: 'Panchavati Market, Nashik - 422003',
+  lat: 20.0150,
+  lng: 73.8050
+};
+let filterOnlyNearbyVillages = false;
+let currentAiCategoryFilter = 'ALL';
+
 // Initialize Page
 document.addEventListener('DOMContentLoaded', () => {
   // Load saved theme if any
@@ -115,11 +124,33 @@ async function fetchAiForecast() {
   }
 }
 
+function filterAiForecasts(category) {
+  currentAiCategoryFilter = category;
+  document.querySelectorAll('.ai-filter-btn').forEach(btn => {
+    if (btn.id === `ai-filter-${category}`) {
+      btn.className = "ai-filter-btn px-3 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-sm transition";
+    } else {
+      btn.className = "ai-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition";
+    }
+  });
+  renderAiForecastCards();
+}
+
 function renderAiForecastCards() {
   const container = document.getElementById('ai-forecast-grid');
   if (!container || activeForecasts.length === 0) return;
 
-  container.innerHTML = activeForecasts.map(f => {
+  let itemsToRender = activeForecasts;
+  if (currentAiCategoryFilter !== 'ALL') {
+    itemsToRender = itemsToRender.filter(f => (f.category || '').toLowerCase() === currentAiCategoryFilter.toLowerCase());
+  }
+
+  if (itemsToRender.length === 0) {
+    container.innerHTML = `<div class="col-span-2 p-8 text-center text-slate-500">No commodities found for category "${currentAiCategoryFilter}".</div>`;
+    return;
+  }
+
+  container.innerHTML = itemsToRender.map(f => {
     let statusClass = "bg-emerald-100 text-emerald-800 border-emerald-300";
     let statusLabel = "High Buyer Inflow";
     if (f.demandStatus === 'PEAK_SUPPLY_STABLE') {
@@ -128,14 +159,27 @@ function renderAiForecastCards() {
     } else if (f.demandStatus === 'MODERATE_UPWARD') {
       statusClass = "bg-amber-100 text-amber-800 border-amber-300";
       statusLabel = "Prices Rising Upward";
+    } else if (f.demandStatus === 'STEADY_DEMAND') {
+      statusClass = "bg-slate-100 text-slate-800 border-slate-300";
+      statusLabel = "Steady Regular Consumption";
     }
+
+    // Dynamic price scale for 7-day trend bars
+    const maxVal = Math.max(...f.sevenDayTrend, f.predictedNextWeekAvg);
+    const minVal = Math.min(...f.sevenDayTrend, f.predictedNextWeekAvg);
+    const spread = (maxVal - minVal) || 1;
+    const priceChangePct = Math.round(((f.predictedNextWeekAvg - f.currentMandiRate) / f.currentMandiRate) * 100);
+    const isGain = priceChangePct >= 0;
 
     return `
       <div class="bg-slate-50 rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4 hover:border-emerald-400 transition">
         <div class="flex items-start justify-between">
           <div>
-            <h3 class="font-black text-slate-900 text-base">${f.commodity}</h3>
-            <p class="text-[11px] text-slate-500">Market Arrival: <strong>${f.marketArrivalVolumeQuintals} Quintals</strong> • Elasticity: ${f.elasticityIndex}</p>
+            <div class="flex items-center space-x-2">
+              <h3 class="font-black text-slate-900 text-base">${f.commodity}</h3>
+              <span class="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">${f.category}</span>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-0.5">Market Arrival: <strong>${f.marketArrivalVolumeQuintals} Quintals</strong> • Elasticity: ${f.elasticityIndex}</p>
           </div>
           <span class="text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${statusClass}">
             ${statusLabel}
@@ -158,20 +202,20 @@ function renderAiForecastCards() {
           </div>
         </div>
 
-        <!-- 7-Day Trend Visual Bars -->
+        <!-- 7-Day Trend Visual Bars with Dynamic Scaling -->
         <div class="space-y-1">
           <div class="flex justify-between text-[10px] font-bold text-slate-400 uppercase">
             <span>7-Day Price Forecast Trajectory</span>
-            <span class="text-emerald-700">+12% Expected Gain</span>
+            <span class="${isGain ? 'text-emerald-700' : 'text-rose-600'}">${isGain ? '+' : ''}${priceChangePct}% Expected Shift</span>
           </div>
-          <div class="flex items-end space-x-1.5 h-12 bg-white p-2 rounded-xl border">
+          <div class="flex items-end space-x-1.5 h-14 bg-white p-2 rounded-xl border">
             ${f.sevenDayTrend.map((price, idx) => {
-              const heightPct = Math.round((price / 45) * 100);
+              const heightPct = Math.max(15, Math.min(100, Math.round(((price - minVal) / spread) * 75 + 25)));
               return `
                 <div class="flex-1 flex flex-col items-center justify-end h-full group relative">
-                  <div class="w-full bg-emerald-500 group-hover:bg-amber-400 rounded-t transition-all" style="height: ${Math.min(100, heightPct)}%;"></div>
+                  <div class="w-full bg-emerald-500 group-hover:bg-amber-400 rounded-t transition-all" style="height: ${heightPct}%;"></div>
                   <span class="text-[8px] text-slate-400 mt-0.5 font-bold">D${idx + 1}</span>
-                  <div class="absolute -top-6 bg-slate-900 text-white text-[9px] px-1 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none">₹${price}</div>
+                  <div class="absolute -top-6 bg-slate-900 text-white text-[9px] px-1 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-10">₹${price}/kg</div>
                 </div>
               `;
             }).join('')}
@@ -357,7 +401,7 @@ function getCropPhotoUrl(name, category) {
   const n = (name || '').toLowerCase();
   const c = (category || '').toLowerCase();
   if (n.includes('tomato')) return 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=600&q=80';
-  if (n.includes('mango')) return 'https://images.unsplash.com/photo-1553279768-865429fa0078?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('mango') || n.includes('alphonso')) return 'https://images.unsplash.com/photo-1553279768-865429fa0078?auto=format&fit=crop&w=600&q=80';
   if (n.includes('orange')) return 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?auto=format&fit=crop&w=600&q=80';
   if (n.includes('banana')) return 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?auto=format&fit=crop&w=600&q=80';
   if (n.includes('potato')) return 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&w=600&q=80';
@@ -365,10 +409,116 @@ function getCropPhotoUrl(name, category) {
   if (n.includes('wheat') || n.includes('grain')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=600&q=80';
   if (n.includes('rice') || n.includes('basmati')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80';
   if (n.includes('apple')) return 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?auto=format&fit=crop&w=600&q=80';
-  if (n.includes('guava')) return 'https://images.unsplash.com/photo-1536511135898-752b18c92582?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('guava')) return 'https://images.unsplash.com/photo-1535914254981-b5012eebbd15?auto=format&fit=crop&w=600&q=80';
   if (c.includes('fruit')) return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=600&q=80';
   if (c.includes('grain')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80';
   return 'https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80';
+}
+
+function getCategoryFallbackImage(category) {
+  const c = (category || '').toLowerCase();
+  if (c.includes('fruit')) return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=600&q=80';
+  if (c.includes('grain')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80';
+  return 'https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80';
+}
+
+function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 25.0;
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c * 10) / 10;
+}
+
+function handleDeliveryHubSelect(val) {
+  const select = document.getElementById('delivery-hub-select');
+  const opt = select.options[select.selectedIndex];
+  if (!opt) return;
+
+  const lat = parseFloat(opt.dataset.lat) || 20.0150;
+  const lng = parseFloat(opt.dataset.lng) || 73.8050;
+  const name = opt.dataset.name || opt.innerText;
+
+  currentDeliveryLocation = { name, lat, lng };
+  const latEl = document.getElementById('delivery-lat');
+  const lngEl = document.getElementById('delivery-lng');
+  const addrEl = document.getElementById('buyer-address');
+
+  if (latEl) latEl.value = lat;
+  if (lngEl) lngEl.value = lng;
+  if (addrEl) addrEl.value = name;
+
+  const gmapsBtn = document.getElementById('btn-open-google-maps');
+  if (gmapsBtn) {
+    gmapsBtn.href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  }
+
+  filterProduceGrid();
+  calculateTotalCost();
+}
+
+function handleAddressManualChange() {
+  const addr = document.getElementById('buyer-address')?.value || '';
+  currentDeliveryLocation.name = addr;
+  calculateTotalCost();
+}
+
+function handleAutoDetectGps() {
+  if (!navigator.geolocation) {
+    alert('Geolocation is not supported by your browser.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = Math.round(pos.coords.latitude * 10000) / 10000;
+      const lng = Math.round(pos.coords.longitude * 10000) / 10000;
+      const addrName = `GPS Location (${lat}, ${lng})`;
+      currentDeliveryLocation = { name: addrName, lat, lng };
+
+      const latEl = document.getElementById('delivery-lat');
+      const lngEl = document.getElementById('delivery-lng');
+      const addrEl = document.getElementById('buyer-address');
+
+      if (latEl) latEl.value = lat;
+      if (lngEl) lngEl.value = lng;
+      if (addrEl) addrEl.value = addrName;
+
+      const gmapsBtn = document.getElementById('btn-open-google-maps');
+      if (gmapsBtn) {
+        gmapsBtn.href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+      }
+
+      alert(`📍 GPS Location Detected: ${lat}, ${lng}. Recalculating farm distances & logistics pricing.`);
+      filterProduceGrid();
+      calculateTotalCost();
+    },
+    (err) => {
+      alert(`Could not detect GPS location: ${err.message}. Using chosen hub.`);
+    }
+  );
+}
+
+function toggleNearbyFilter() {
+  filterOnlyNearbyVillages = !filterOnlyNearbyVillages;
+  const btn = document.getElementById('filter-nearby-btn');
+  const text = document.getElementById('filter-nearby-text');
+
+  if (btn && text) {
+    if (filterOnlyNearbyVillages) {
+      btn.className = "px-3 py-1 rounded-full text-xs font-bold bg-emerald-700 text-white shadow transition flex items-center space-x-1.5 flex-shrink-0 ring-2 ring-emerald-400";
+      text.innerText = "Nearby Villages (≤ 100 km) [ACTIVE]";
+    } else {
+      btn.className = "px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition flex items-center space-x-1.5 flex-shrink-0";
+      text.innerText = "Nearby Villages (≤ 100 km)";
+    }
+  }
+
+  filterProduceGrid();
 }
 
 function escapeHtml(str) {
@@ -448,6 +598,16 @@ function getFilteredProduceList() {
       const matchFpo = (p.fpoAffiliation || '').toLowerCase().includes(q);
       const matchUid = (p.uniqueFarmerId || '').toLowerCase().includes(q);
       return matchName || matchFarmer || matchCategory || matchLocation || matchFpo || matchUid;
+    });
+  }
+
+  // 3. Filter by Nearby Villages (<= 100km)
+  if (filterOnlyNearbyVillages) {
+    list = list.filter(p => {
+      const fLat = p.farmerLat !== null && p.farmerLat !== undefined ? p.farmerLat : 20.0059;
+      const fLng = p.farmerLng !== null && p.farmerLng !== undefined ? p.farmerLng : 73.7898;
+      const dist = calculateDistanceKm(fLat, fLng, currentDeliveryLocation.lat, currentDeliveryLocation.lng);
+      return dist <= 100;
     });
   }
 
@@ -625,6 +785,12 @@ function renderProduceGrid(list = null) {
 
   container.innerHTML = itemsToRender.map(p => {
     const photoUrl = p.imageUrl || getCropPhotoUrl(p.name, p.category);
+    const fLat = p.farmerLat !== null && p.farmerLat !== undefined ? p.farmerLat : 20.0059;
+    const fLng = p.farmerLng !== null && p.farmerLng !== undefined ? p.farmerLng : 73.7898;
+    const dist = calculateDistanceKm(fLat, fLng, currentDeliveryLocation.lat, currentDeliveryLocation.lng);
+    const isNearby = dist <= 100;
+    const fallbackImg = getCategoryFallbackImage(p.category);
+
     return `
     <div onclick="selectProduce('${p.id}')" id="card-produce-${p.id}" class="produce-card bg-white rounded-2xl shadow-sm border-2 border-slate-200 hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col justify-between overflow-hidden group">
       <div>
@@ -634,7 +800,7 @@ function renderProduceGrid(list = null) {
             src="${photoUrl}" 
             alt="${p.name}" 
             class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            onerror="this.src='https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80'"
+            onerror="this.src='${fallbackImg}'"
             loading="lazy"
           >
           <div class="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-black/20"></div>
@@ -659,10 +825,23 @@ function renderProduceGrid(list = null) {
           </div>
         </div>
 
-        <div class="p-4 space-y-3">
-          <div class="text-xs text-slate-500 flex items-center space-x-1">
-            <i class="fa-solid fa-location-dot text-rose-500"></i>
-            <span class="truncate">${p.farmerLocation || 'Nashik, Maharashtra'}</span>
+        <div class="p-4 space-y-2.5">
+          <div class="flex items-center justify-between text-xs">
+            <div class="text-xs text-slate-500 flex items-center space-x-1 truncate mr-2">
+              <i class="fa-solid fa-location-dot text-rose-500"></i>
+              <span class="truncate">${p.farmerVillage || p.farmerLocation || 'Nashik, Maharashtra'}</span>
+            </div>
+            ${isNearby ? `
+              <span class="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full flex-shrink-0 flex items-center shadow-xs">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>
+                ${dist} km (Nearby)
+              </span>
+            ` : `
+              <span class="text-[10px] font-bold text-rose-800 bg-rose-100 border border-rose-300 px-2 py-0.5 rounded-full flex-shrink-0 flex items-center shadow-xs">
+                <i class="fa-solid fa-triangle-exclamation text-rose-600 mr-1"></i>
+                ${dist} km (>100km)
+              </span>
+            `}
           </div>
 
           <div class="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border space-y-1">
@@ -772,57 +951,133 @@ async function handleQuantityInputChange() {
   calculateTotalCost();
 }
 
-// Auto-assign transport vehicle strictly based on payload quantity (KG)
-function getTransportByQuantity(qtyKg) {
+// Auto-assign transport vehicle strictly based on payload quantity (KG) & delivery distance (KM)
+function getTransportByQuantityAndDistance(qtyKg, distanceKm) {
   const qty = parseFloat(qtyKg) || 0;
+  const dist = parseFloat(distanceKm) > 0 ? parseFloat(distanceKm) : (currentDeliveryLocation?.distanceKm || 18);
+
+  let config;
   if (qty <= 25) {
-    return {
+    config = {
       type: '2wheeler',
       name: '🛵 Bike Express',
       fullName: '🛵 Two-Wheeler / Bike Express (Up to 25kg)',
       icon: 'fa-motorcycle',
       badge: '≤ 25 kg (Light Parcel)',
-      rate: 150,
+      baseFee: 50,
+      perKm: 6,
+      minFee: 80,
       description: `Auto-allocated for ${qty} kg parcel (≤ 25 kg bracket)`
     };
   } else if (qty <= 100) {
-    return {
+    config = {
       type: 'auto',
       name: '🛺 Auto Cargo (3-Wheeler)',
       fullName: '🛺 Auto Cargo / 3-Wheeler (25kg – 100kg)',
       icon: 'fa-truck-pickup',
       badge: '25 – 100 kg (Medium Load)',
-      rate: 350,
+      baseFee: 120,
+      perKm: 10,
+      minFee: 180,
       description: `Auto-allocated for ${qty} kg load (25–100 kg bracket)`
     };
   } else if (qty <= 500) {
-    return {
+    config = {
       type: 'minitruck',
       name: '🚚 Mini Truck / SCV Pickup',
       fullName: '🚚 Mini Truck / SCV Pickup (100kg – 500kg)',
       icon: 'fa-truck-front',
       badge: '100 – 500 kg (Retail Bulk)',
-      rate: 750,
+      baseFee: 300,
+      perKm: 16,
+      minFee: 450,
       description: `Auto-allocated for ${qty} kg cargo (100–500 kg bracket)`
     };
   } else {
-    return {
+    config = {
       type: 'heavy',
       name: '🚛 Commercial Heavy Truck',
       fullName: '🚛 Commercial Heavy Truck (> 500kg)',
       icon: 'fa-truck-moving',
       badge: '> 500 kg (Wholesale Freight)',
-      rate: 1500,
+      baseFee: 700,
+      perKm: 24,
+      minFee: 950,
       description: `Auto-allocated for ${qty} kg heavy bulk (> 500 kg bracket)`
     };
   }
+
+  const calculatedRate = Math.round(config.baseFee + (dist * config.perKm));
+  const finalFee = Math.max(config.minFee, calculatedRate);
+
+  return {
+    ...config,
+    distanceKm: dist,
+    rate: finalFee,
+    description: `${config.fullName} • ${dist} km @ ₹${config.perKm}/km + ₹${config.baseFee} base`
+  };
+}
+
+function getTransportByQuantity(qtyKg) {
+  let dist = 18;
+  if (selectedProduce) {
+    const fLat = selectedProduce.farmerLat !== null && selectedProduce.farmerLat !== undefined ? selectedProduce.farmerLat : 20.0059;
+    const fLng = selectedProduce.farmerLng !== null && selectedProduce.farmerLng !== undefined ? selectedProduce.farmerLng : 73.7898;
+    dist = calculateDistanceKm(fLat, fLng, currentDeliveryLocation.lat, currentDeliveryLocation.lng);
+  }
+  return getTransportByQuantityAndDistance(qtyKg, dist);
 }
 
 function calculateTotalCost() {
   if (!selectedProduce) return;
 
   const qty = parseFloat(document.getElementById('order-qty').value) || 0;
-  const transport = getTransportByQuantity(qty);
+
+  // 1. Calculate distance from supplying village farm to delivery destination
+  const fLat = selectedProduce.farmerLat !== null && selectedProduce.farmerLat !== undefined ? selectedProduce.farmerLat : 20.0059;
+  const fLng = selectedProduce.farmerLng !== null && selectedProduce.farmerLng !== undefined ? selectedProduce.farmerLng : 73.7898;
+  const distance = calculateDistanceKm(fLat, fLng, currentDeliveryLocation.lat, currentDeliveryLocation.lng);
+  const isWithinGeofence = distance <= 100;
+
+  // 2. Update 100km Geofence Status Banner & Order Submit Button
+  const banner = document.getElementById('geofence-status-banner');
+  const submitBtn = document.getElementById('btn-submit-order');
+  const submitTextEl = document.getElementById('btn-submit-text');
+
+  if (banner) {
+    if (!isWithinGeofence) {
+      banner.className = "rounded-xl p-3 bg-rose-50 border-2 border-rose-400 text-rose-900 space-y-1";
+      banner.innerHTML = `
+        <div class="flex items-center justify-between font-black text-xs uppercase tracking-wide">
+          <span class="flex items-center"><i class="fa-solid fa-triangle-exclamation text-rose-600 mr-1.5 text-sm animate-pulse"></i> 100km Freshness Geofence Exceeded!</span>
+          <span class="bg-rose-200 text-rose-950 px-2 py-0.5 rounded text-[10px] font-mono font-black">${distance} km (> 100 km)</span>
+        </div>
+        <p class="text-[11px] text-rose-800 font-semibold leading-relaxed">
+          Supplying farm in <strong>${selectedProduce.farmerLocation || selectedProduce.farmerVillage || 'Supplying Village'}</strong> is <strong>${distance} km</strong> from your destination.
+          Orders exceeding 100 km are blocked to guarantee direct farm freshness. Please select groceries from nearby village farms (≤ 100 km).
+        </p>
+      `;
+    } else {
+      const gmapsDirUrl = `https://www.google.com/maps/dir/?api=1&origin=${fLat},${fLng}&destination=${currentDeliveryLocation.lat},${currentDeliveryLocation.lng}&travelmode=driving`;
+      banner.className = "rounded-xl p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-900 space-y-1";
+      banner.innerHTML = `
+        <div class="flex items-center justify-between font-bold text-xs">
+          <span class="flex items-center"><i class="fa-solid fa-location-dot text-emerald-600 mr-1.5"></i> Farm Distance: ${distance} km (Within 100km Direct Geofence)</span>
+          <a href="${gmapsDirUrl}" target="_blank" rel="noopener noreferrer" class="text-emerald-700 hover:text-emerald-900 font-extrabold underline text-[11px] flex items-center space-x-1">
+            <i class="fa-brands fa-google text-emerald-600"></i>
+            <span>Google Maps Route</span>
+            <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+          </a>
+        </div>
+        <p class="text-[10px] text-emerald-700 font-medium">
+          Village Farm: <strong>${selectedProduce.farmerLocation || selectedProduce.farmerVillage || 'Local Farm'}</strong> → Delivery: <strong>${currentDeliveryLocation.name}</strong>
+        </p>
+      `;
+    }
+  }
+
+  // 3. Dynamic Distance-Varying Transport Calculation
+  const transport = getTransportByQuantityAndDistance(qty, distance);
 
   // Update hidden form field
   const transportInput = document.getElementById('order-transport-type');
@@ -836,8 +1091,8 @@ function calculateTotalCost() {
   const iconEl = document.getElementById('auto-transport-icon');
 
   if (nameEl) nameEl.innerText = transport.name;
-  if (rateEl) rateEl.innerText = `₹${transport.rate}`;
-  if (badgeEl) badgeEl.innerText = transport.badge;
+  if (rateEl) rateEl.innerText = `₹${transport.rate.toLocaleString()} (${distance} km)`;
+  if (badgeEl) badgeEl.innerText = `${transport.badge} • ${distance} km`;
   if (descEl) descEl.innerText = transport.description;
   if (iconEl) iconEl.className = `fa-solid ${transport.icon}`;
 
@@ -861,12 +1116,19 @@ function calculateTotalCost() {
   if (advEl) advEl.innerText = `₹${advanceAmount.toLocaleString()}`;
   if (balEl) balEl.innerText = `₹${balanceAmount.toLocaleString()}`;
 
-  const submitTextEl = document.getElementById('btn-submit-text');
-  if (submitTextEl) {
-    if (isBulk) {
-      submitTextEl.innerText = `Pay 40% Advance (₹${advanceAmount.toLocaleString()}) & Place Order`;
+  if (submitBtn && submitTextEl) {
+    if (!isWithinGeofence) {
+      submitBtn.disabled = true;
+      submitBtn.className = "w-full bg-slate-400 text-white font-bold py-3 px-4 rounded-xl cursor-not-allowed text-xs sm:text-sm opacity-80 flex items-center justify-center space-x-2";
+      submitTextEl.innerText = `❌ Cannot Order: Village is ${distance} km away (>100km)`;
     } else {
-      submitTextEl.innerText = `Pay Total (₹${total.toLocaleString()}) & Place Order`;
+      submitBtn.disabled = false;
+      submitBtn.className = "theme-primary-btn w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg hover:shadow-xl transition flex items-center justify-center space-x-2 text-sm";
+      if (isBulk) {
+        submitTextEl.innerText = `Pay 40% Advance (₹${advanceAmount.toLocaleString()}) & Place Order`;
+      } else {
+        submitTextEl.innerText = `Pay Total (₹${total.toLocaleString()}) & Place Order`;
+      }
     }
   }
 }
@@ -878,15 +1140,27 @@ async function handleCreateOrder(e) {
   const qty = parseFloat(document.getElementById('order-qty').value) || 0;
   const buyerName = document.getElementById('buyer-name').value;
   const buyerPhone = document.getElementById('buyer-phone').value;
-  const deliveryAddress = document.getElementById('buyer-address').value;
-  const transportType = document.getElementById('order-transport-type')?.value || getTransportByQuantity(qty).type;
+  const deliveryAddress = document.getElementById('buyer-address').value || currentDeliveryLocation.name;
+  const deliveryLat = parseFloat(document.getElementById('delivery-lat')?.value) || currentDeliveryLocation.lat;
+  const deliveryLng = parseFloat(document.getElementById('delivery-lng')?.value) || currentDeliveryLocation.lng;
 
   if (!produceId) {
     alert('Please select a produce item first!');
     return;
   }
 
-  const transport = getTransportByQuantity(qty);
+  // 100km Geofence Validation
+  const fLat = selectedProduce.farmerLat !== null && selectedProduce.farmerLat !== undefined ? selectedProduce.farmerLat : 20.0059;
+  const fLng = selectedProduce.farmerLng !== null && selectedProduce.farmerLng !== undefined ? selectedProduce.farmerLng : 73.7898;
+  const distance = calculateDistanceKm(fLat, fLng, deliveryLat, deliveryLng);
+
+  if (distance > 100) {
+    alert(`❌ Cannot place order: Supplying village farm (${selectedProduce.farmerLocation || 'Local Farm'}) is ${distance} km away.\n\nMaximum allowed delivery distance is 100 km to guarantee farm freshness. Please choose groceries from nearby village farms.`);
+    return;
+  }
+
+  const transport = getTransportByQuantityAndDistance(qty, distance);
+  const transportType = `${transport.name} (${distance} km)`;
   const cropCost = qty * selectedProduce.pricePerKg;
   const transportFee = transport.rate;
   const serviceFee = Math.round(cropCost * 0.02);
@@ -906,6 +1180,9 @@ async function handleCreateOrder(e) {
     buyerName,
     buyerPhone,
     deliveryAddress,
+    deliveryLat,
+    deliveryLng,
+    deliveryDistanceKm: distance,
     transportType,
     items: [{ produceId, quantityKg: qty }],
     isBulk,
@@ -1317,6 +1594,44 @@ function renderOrdersList() {
             <div class="text-slate-400 font-medium">Logistics & Destination:</div>
             <div class="font-bold text-slate-800">${o.transportType}</div>
             <div class="text-[11px] text-slate-500">Deliver to: ${o.deliveryAddress}</div>
+          </div>
+        </div>
+
+        <!-- Google Maps Village-to-Doorstep Route Navigation Card -->
+        <div class="bg-gradient-to-r from-emerald-50 via-teal-50 to-sky-50 border-2 border-emerald-300 rounded-xl p-3.5 space-y-2 text-xs">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-200/80 pb-2">
+            <div class="flex items-center space-x-2 font-black text-slate-900">
+              <i class="fa-solid fa-map-location-dot text-emerald-700 text-base"></i>
+              <span>Live Farm-to-Doorstep Route Navigation</span>
+              <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
+                ${o.deliveryDistanceKm ? o.deliveryDistanceKm + ' km (≤ 100km Direct)' : 'Direct Farm Route'}
+              </span>
+            </div>
+            <a href="${o.googleMapsUrl || `https://www.google.com/maps/dir/?api=1&origin=${o.farmerLat || 20.0059},${o.farmerLng || 73.7898}&destination=${o.deliveryLat || 20.0150},${o.deliveryLng || 73.8050}&travelmode=driving`}" target="_blank" rel="noopener noreferrer" class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition flex items-center space-x-1.5 text-xs">
+              <i class="fa-brands fa-google"></i>
+              <span>Open in Google Maps</span>
+              <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+            </a>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div class="flex items-start space-x-2 bg-white/80 p-2.5 rounded-lg border border-emerald-100">
+              <span class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">A</span>
+              <div class="min-w-0 flex-1">
+                <div class="text-[10px] uppercase font-extrabold text-slate-400">Village Farm Origin</div>
+                <div class="font-bold text-slate-800 truncate">${o.farmerVillage || o.farmerLocation || 'Local Farm'}</div>
+                <div class="text-[10px] text-slate-500 font-mono">GPS: ${o.farmerLat ? Number(o.farmerLat).toFixed(4) : '20.0059'}, ${o.farmerLng ? Number(o.farmerLng).toFixed(4) : '73.7898'}</div>
+              </div>
+            </div>
+
+            <div class="flex items-start space-x-2 bg-white/80 p-2.5 rounded-lg border border-emerald-100">
+              <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">B</span>
+              <div class="min-w-0 flex-1">
+                <div class="text-[10px] uppercase font-extrabold text-slate-400">Customer Delivery Destination</div>
+                <div class="font-bold text-slate-800 truncate">${o.deliveryAddress}</div>
+                <div class="text-[10px] text-slate-500 font-mono">GPS: ${o.deliveryLat ? Number(o.deliveryLat).toFixed(4) : '20.0150'}, ${o.deliveryLng ? Number(o.deliveryLng).toFixed(4) : '73.8050'}</div>
+              </div>
+            </div>
           </div>
         </div>
 
