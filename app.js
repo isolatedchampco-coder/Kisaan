@@ -21,6 +21,11 @@ let currentUser = {
   farmerUniqueId: null
 };
 
+// Search & Autocomplete State
+let currentSearchQuery = '';
+let activeSearchDropdownIndex = -1;
+let currentCategoryFilter = 'ALL';
+
 // Initialize Page
 document.addEventListener('DOMContentLoaded', () => {
   // Load saved theme if any
@@ -31,6 +36,14 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchFarmers();
   fetchOrders();
   fetchAiForecast();
+
+  // Close search dropdown on click outside
+  document.addEventListener('click', (e) => {
+    const container = document.getElementById('search-container');
+    if (container && !container.contains(e.target)) {
+      hideSearchDropdown();
+    }
+  });
 
   // Poll silently every 4 seconds for live SMS / Orders updates
   setInterval(() => {
@@ -296,14 +309,278 @@ async function fetchProduce() {
   }
 }
 
-function renderProduceGrid() {
-  const container = document.getElementById('produce-container');
-  if (currentProduceList.length === 0) {
-    container.innerHTML = `<div class="col-span-2 bg-white p-8 rounded-xl text-center text-slate-400">No produce available. Register a farmer first!</div>`;
+// ==========================================
+// 3. SEARCH, AUTOCOMPLETE & PRODUCE CATALOG
+// ==========================================
+
+function getCropEmoji(name, category) {
+  const n = (name || '').toLowerCase();
+  const c = (category || '').toLowerCase();
+  if (n.includes('tomato')) return '🍅';
+  if (n.includes('mango')) return '🥭';
+  if (n.includes('orange')) return '🍊';
+  if (n.includes('banana')) return '🍌';
+  if (n.includes('potato')) return '🥔';
+  if (n.includes('onion')) return '🧅';
+  if (n.includes('wheat') || n.includes('grain')) return '🌾';
+  if (n.includes('rice')) return '🍚';
+  if (n.includes('apple')) return '🍎';
+  if (n.includes('guava')) return '🍈';
+  if (c.includes('fruit')) return '🍇';
+  if (c.includes('vegetable')) return '🥦';
+  return '🥬';
+}
+
+function escapeHtml(str) {
+  return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function highlightMatchText(text, query) {
+  if (!query || !query.trim()) return escapeHtml(text);
+  const q = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${q})`, 'gi');
+  return escapeHtml(text).replace(regex, `<span class="bg-amber-200 text-amber-950 font-black px-1 rounded">$1</span>`);
+}
+
+function handleProduceSearchInput(val) {
+  currentSearchQuery = val.trim();
+  const clearBtn = document.getElementById('search-clear-btn');
+  if (clearBtn) {
+    if (val.length > 0) clearBtn.classList.remove('hidden');
+    else clearBtn.classList.add('hidden');
+  }
+
+  activeSearchDropdownIndex = -1;
+  renderSearchDropdown();
+  filterProduceGrid();
+}
+
+function handleProduceSearchFocus() {
+  const val = document.getElementById('produce-search-input')?.value || '';
+  if (val.trim().length > 0) {
+    renderSearchDropdown();
+  }
+}
+
+function clearProduceSearch() {
+  const input = document.getElementById('produce-search-input');
+  if (input) input.value = '';
+  currentSearchQuery = '';
+  document.getElementById('search-clear-btn')?.classList.add('hidden');
+  hideSearchDropdown();
+  filterProduceGrid();
+}
+
+function hideSearchDropdown() {
+  const dropdown = document.getElementById('search-dropdown-results');
+  if (dropdown) dropdown.classList.add('hidden');
+  activeSearchDropdownIndex = -1;
+}
+
+function setCategoryFilter(category) {
+  currentCategoryFilter = category;
+  document.querySelectorAll('.category-filter-btn').forEach(btn => {
+    if (btn.dataset.category === category) {
+      btn.className = "category-filter-btn px-3 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-sm transition";
+    } else {
+      btn.className = "category-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition";
+    }
+  });
+  filterProduceGrid();
+}
+
+function getFilteredProduceList() {
+  let list = currentProduceList;
+
+  // 1. Filter by category pill
+  if (currentCategoryFilter !== 'ALL') {
+    list = list.filter(p => (p.category || '').toLowerCase() === currentCategoryFilter.toLowerCase());
+  }
+
+  // 2. Filter by search query
+  if (currentSearchQuery) {
+    const q = currentSearchQuery.toLowerCase();
+    list = list.filter(p => {
+      const matchName = (p.name || '').toLowerCase().includes(q);
+      const matchFarmer = (p.farmerName || '').toLowerCase().includes(q);
+      const matchCategory = (p.category || '').toLowerCase().includes(q);
+      const matchLocation = (p.farmerLocation || '').toLowerCase().includes(q);
+      const matchFpo = (p.fpoAffiliation || '').toLowerCase().includes(q);
+      const matchUid = (p.uniqueFarmerId || '').toLowerCase().includes(q);
+      return matchName || matchFarmer || matchCategory || matchLocation || matchFpo || matchUid;
+    });
+  }
+
+  return list;
+}
+
+function filterProduceGrid() {
+  const filtered = getFilteredProduceList();
+  renderProduceGrid(filtered);
+}
+
+function renderSearchDropdown() {
+  const dropdown = document.getElementById('search-dropdown-results');
+  if (!dropdown) return;
+
+  if (!currentSearchQuery) {
+    dropdown.classList.add('hidden');
     return;
   }
 
-  container.innerHTML = currentProduceList.map(p => `
+  const q = currentSearchQuery.toLowerCase();
+  const matches = currentProduceList.filter(p => {
+    const matchName = (p.name || '').toLowerCase().includes(q);
+    const matchFarmer = (p.farmerName || '').toLowerCase().includes(q);
+    const matchCategory = (p.category || '').toLowerCase().includes(q);
+    const matchLocation = (p.farmerLocation || '').toLowerCase().includes(q);
+    const matchFpo = (p.fpoAffiliation || '').toLowerCase().includes(q);
+    const matchUid = (p.uniqueFarmerId || '').toLowerCase().includes(q);
+    return matchName || matchFarmer || matchCategory || matchLocation || matchFpo || matchUid;
+  });
+
+  if (matches.length === 0) {
+    dropdown.innerHTML = `
+      <div class="p-4 text-center text-xs text-slate-500 space-y-1">
+        <i class="fa-solid fa-magnifying-glass text-slate-300 text-lg mb-1"></i>
+        <p>No farm produce found matching "<strong>${escapeHtml(currentSearchQuery)}</strong>"</p>
+        <button onclick="clearProduceSearch()" class="text-emerald-700 font-bold hover:underline text-[11px] pt-1">
+          Show all available crops
+        </button>
+      </div>
+    `;
+    dropdown.classList.remove('hidden');
+    return;
+  }
+
+  dropdown.innerHTML = `
+    <div class="bg-slate-50 px-3.5 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between border-b">
+      <span>Matching Farm Produce (${matches.length})</span>
+      <span class="text-emerald-700">Click to Select</span>
+    </div>
+    ${matches.map((p, idx) => {
+      const emoji = getCropEmoji(p.name, p.category);
+      const highlightedName = highlightMatchText(p.name, currentSearchQuery);
+      const highlightedFarmer = highlightMatchText(p.farmerName, currentSearchQuery);
+      const highlightedFpo = p.fpoAffiliation ? highlightMatchText(p.fpoAffiliation, currentSearchQuery) : 'Independent Farmer';
+
+      return `
+        <div 
+          onclick="selectAndFocusProduce('${p.id}')" 
+          id="search-item-${idx}" 
+          class="search-dropdown-item p-3 hover:bg-emerald-50/80 cursor-pointer flex items-center justify-between transition group"
+        >
+          <div class="flex items-center space-x-3 min-w-0">
+            <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-lg flex-shrink-0 shadow-sm">
+              ${emoji}
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center space-x-2">
+                <h5 class="font-bold text-xs text-slate-900 group-hover:text-emerald-700 truncate">
+                  ${highlightedName}
+                </h5>
+                <span class="text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 border">
+                  ${p.category}
+                </span>
+              </div>
+              <div class="text-[11px] text-slate-500 mt-0.5 truncate">
+                Farmer: <strong class="text-slate-700">${highlightedFarmer}</strong> • ${p.farmerLocation ? p.farmerLocation.split('(')[0] : 'Nashik'} • 
+                <span class="text-amber-800 font-medium">🌾 ${highlightedFpo}</span>
+              </div>
+            </div>
+          </div>
+          <div class="text-right flex-shrink-0 ml-3">
+            <div class="text-sm font-black text-emerald-700">₹${p.pricePerKg}<span class="text-[10px] text-slate-400 font-normal">/kg</span></div>
+            <div class="text-[10px] text-slate-500 font-semibold"><i class="fa-solid fa-boxes-stacked text-emerald-600 mr-1"></i>${p.availableKg} kg stock</div>
+          </div>
+        </div>
+      `;
+    }).join('')}
+  `;
+
+  dropdown.classList.remove('hidden');
+}
+
+function handleSearchKeyDown(e) {
+  const dropdown = document.getElementById('search-dropdown-results');
+  if (!dropdown || dropdown.classList.contains('hidden')) return;
+
+  const items = dropdown.querySelectorAll('.search-dropdown-item');
+  if (items.length === 0) return;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    activeSearchDropdownIndex = (activeSearchDropdownIndex + 1) % items.length;
+    updateActiveDropdownItem(items);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    activeSearchDropdownIndex = (activeSearchDropdownIndex - 1 + items.length) % items.length;
+    updateActiveDropdownItem(items);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (activeSearchDropdownIndex >= 0 && activeSearchDropdownIndex < items.length) {
+      items[activeSearchDropdownIndex].click();
+    } else if (items.length > 0) {
+      items[0].click();
+    }
+  } else if (e.key === 'Escape') {
+    hideSearchDropdown();
+  }
+}
+
+function updateActiveDropdownItem(items) {
+  items.forEach((item, idx) => {
+    if (idx === activeSearchDropdownIndex) {
+      item.classList.add('bg-emerald-100/80', 'border-l-4', 'border-emerald-600');
+      item.scrollIntoView({ block: 'nearest' });
+    } else {
+      item.classList.remove('bg-emerald-100/80', 'border-l-4', 'border-emerald-600');
+    }
+  });
+}
+
+function selectAndFocusProduce(produceId) {
+  selectProduce(produceId);
+  hideSearchDropdown();
+
+  // Set search bar text to chosen produce name
+  const p = currentProduceList.find(x => x.id === produceId);
+  if (p) {
+    const input = document.getElementById('produce-search-input');
+    if (input) input.value = p.name;
+    document.getElementById('search-clear-btn')?.classList.remove('hidden');
+  }
+
+  // Highlight and scroll to target card
+  const card = document.getElementById(`card-produce-${produceId}`);
+  if (card) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('ring-4', 'ring-emerald-400', 'highlight-pulse');
+    setTimeout(() => {
+      card.classList.remove('highlight-pulse');
+    }, 2500);
+  }
+}
+
+function renderProduceGrid(list = null) {
+  const container = document.getElementById('produce-container');
+  const itemsToRender = list !== null ? list : getFilteredProduceList();
+
+  if (itemsToRender.length === 0) {
+    container.innerHTML = `
+      <div class="col-span-2 bg-white p-8 rounded-2xl border-2 border-dashed border-slate-200 text-center text-slate-500 space-y-2">
+        <i class="fa-solid fa-seedling text-3xl text-emerald-500 mb-1"></i>
+        <p class="font-bold text-slate-700">No produce matching your search criteria.</p>
+        <p class="text-xs text-slate-400">Try searching for other keywords like "tomato", "potato", "mango", or reset filters.</p>
+        <button onclick="clearProduceSearch()" class="theme-primary-btn bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition shadow mt-2">
+          Reset Search & Show All Produce
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = itemsToRender.map(p => `
     <div onclick="selectProduce('${p.id}')" id="card-produce-${p.id}" class="produce-card bg-white p-5 rounded-2xl shadow-sm border-2 border-slate-200 hover:border-emerald-500 cursor-pointer transition flex flex-col justify-between space-y-4">
       <div class="space-y-2">
         <div class="flex items-start justify-between">
@@ -343,8 +620,11 @@ function renderProduceGrid() {
     </div>
   `).join('');
 
-  if (currentProduceList.length > 0 && !selectedProduce) {
-    selectProduce(currentProduceList[0].id);
+  if (itemsToRender.length > 0 && (!selectedProduce || !itemsToRender.find(x => x.id === selectedProduce.id))) {
+    selectProduce(itemsToRender[0].id);
+  } else if (selectedProduce) {
+    const targetCard = document.getElementById(`card-produce-${selectedProduce.id}`);
+    if (targetCard) targetCard.classList.add('border-emerald-500', 'bg-emerald-50/20');
   }
 }
 

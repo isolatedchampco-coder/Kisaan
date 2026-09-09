@@ -89,3 +89,35 @@ body.theme-earth {
 .route-timeline-item:last-child::before {
   display: none;
 }
+
+/* Search Autocomplete Dropdown & Animations */
+#search-dropdown-results::-webkit-scrollbar {
+  width: 6px;
+}
+#search-dropdown-results::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+#search-dropdown-results::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.search-dropdown-item:hover {
+  background-color: var(--primary-light) !important;
+}
+
+.highlight-pulse {
+  animation: pulse-border 1.8s cubic-bezier(0.24, 0, 0.38, 1) 2;
+}
+
+@keyframes pulse-border {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.8);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}

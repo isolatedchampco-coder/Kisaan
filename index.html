@@ -119,6 +119,65 @@
             <span class="text-xs text-slate-500 font-medium">Click any crop to configure direct order</span>
           </div>
 
+          <!-- Live Search Bar with Autocomplete Dropdown -->
+          <div class="space-y-2.5" id="search-section">
+            <div class="relative" id="search-container">
+              <div class="relative flex items-center">
+                <div class="absolute left-3.5 text-slate-400 pointer-events-none">
+                  <i class="fa-solid fa-magnifying-glass text-sm"></i>
+                </div>
+                <input 
+                  type="text" 
+                  id="produce-search-input" 
+                  placeholder="Search specific item, crop, or farmer (e.g. 'tom', 'man', 'ora', 'oni')..." 
+                  autocomplete="off"
+                  oninput="handleProduceSearchInput(this.value)"
+                  onkeydown="handleSearchKeyDown(event)"
+                  onfocus="handleProduceSearchFocus()"
+                  class="w-full bg-white border-2 border-slate-200 rounded-xl pl-10 pr-24 py-2.5 text-xs sm:text-sm font-medium focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition shadow-sm"
+                >
+                <div class="absolute right-3 flex items-center space-x-2">
+                  <button 
+                    id="search-clear-btn" 
+                    onclick="clearProduceSearch()" 
+                    class="hidden text-slate-400 hover:text-slate-600 w-5 h-5 rounded-full hover:bg-slate-100 flex items-center justify-center text-xs transition"
+                    title="Clear search"
+                  >
+                    <i class="fa-solid fa-xmark"></i>
+                  </button>
+                  <span class="text-[9px] font-mono font-bold bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded border hidden sm:inline-block">
+                    LIVE
+                  </span>
+                </div>
+              </div>
+
+              <!-- Autocomplete Live Dropdown Panel -->
+              <div 
+                id="search-dropdown-results" 
+                class="hidden absolute left-0 right-0 top-full mt-1.5 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-40 max-h-80 overflow-y-auto divide-y divide-slate-100"
+              >
+                <!-- Populated dynamically via JS -->
+              </div>
+            </div>
+
+            <!-- Quick Category Filter Pills -->
+            <div class="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
+              <span class="text-slate-400 font-bold text-[10px] uppercase tracking-wider mr-1">Filter:</span>
+              <button onclick="setCategoryFilter('ALL')" data-category="ALL" class="category-filter-btn px-3 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-sm transition">
+                All Crops
+              </button>
+              <button onclick="setCategoryFilter('Vegetable')" data-category="Vegetable" class="category-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition">
+                🥦 Vegetables
+              </button>
+              <button onclick="setCategoryFilter('Fruit')" data-category="Fruit" class="category-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition">
+                🍎 Fruits
+              </button>
+              <button onclick="setCategoryFilter('Grain')" data-category="Grain" class="category-filter-btn px-3 py-1 rounded-full text-xs font-semibold bg-white text-slate-600 border hover:border-emerald-400 transition">
+                🌾 Grains & Pulses
+              </button>
+            </div>
+          </div>
+
           <div id="produce-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <!-- Produce Cards Rendered Dynamically via JS -->
             <div class="bg-white p-6 rounded-xl shadow-sm border text-center text-slate-400">Loading Produce...</div>
