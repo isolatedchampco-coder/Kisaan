@@ -1,0 +1,91 @@
+/* Custom Styling for KisaanDirect Platform */
+
+:root {
+  --primary-color: #059669;
+  --primary-hover: #047857;
+  --primary-light: #ecfdf5;
+  --header-bg: #047857;
+  --accent-color: #f59e0b;
+}
+
+/* Custom Theme: Harvest Gold */
+body.theme-gold {
+  --primary-color: #d97706;
+  --primary-hover: #b45309;
+  --primary-light: #fffbeb;
+  --header-bg: #b45309;
+  --accent-color: #10b981;
+}
+
+/* Custom Theme: Deep Earth */
+body.theme-earth {
+  --primary-color: #854d0e;
+  --primary-hover: #713f12;
+  --primary-light: #fefce8;
+  --header-bg: #451a03;
+  --accent-color: #f59e0b;
+}
+
+.theme-header {
+  background-color: var(--header-bg) !important;
+}
+
+.theme-primary-btn {
+  background-color: var(--primary-color) !important;
+}
+.theme-primary-btn:hover {
+  background-color: var(--primary-hover) !important;
+}
+
+.transport-card:has(input:checked) {
+  border-color: var(--primary-color) !important;
+  background-color: var(--primary-light) !important;
+  box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2), 0 2px 4px -1px rgba(16, 185, 129, 0.1);
+}
+
+#auto-transport-card {
+  border-color: var(--primary-color) !important;
+  background-color: var(--primary-light) !important;
+}
+
+#auto-transport-icon-box {
+  background-color: var(--primary-color) !important;
+}
+
+#auto-transport-rate {
+  color: var(--primary-color) !important;
+}
+
+.sms-bubble {
+  background: #1e293b;
+  border-left: 3px solid #f59e0b;
+}
+
+/* Custom Scrollbars */
+#sms-log-list::-webkit-scrollbar,
+#route-waypoints-container::-webkit-scrollbar {
+  width: 6px;
+}
+#sms-log-list::-webkit-scrollbar-track,
+#route-waypoints-container::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+#sms-log-list::-webkit-scrollbar-thumb,
+#route-waypoints-container::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+/* Route Timeline Line */
+.route-timeline-item::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 32px;
+  bottom: -16px;
+  width: 2px;
+  background-color: #cbd5e1;
+}
+.route-timeline-item:last-child::before {
+  display: none;
+}

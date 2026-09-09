@@ -1,0 +1,1084 @@
+// KisaanDirect Platform Engine with AI Forecast & Route Optimization
+
+let currentProduceList = [];
+let selectedProduce = null;
+let currentOrders = [];
+let currentSmsLogs = [];
+let activeForecasts = [];
+
+// Multi-Farmer Aggregation State
+let currentShortfallData = null;
+
+// User State (Guest by default)
+let currentUser = {
+  isLoggedIn: false,
+  role: 'GUEST', // 'GUEST', 'CUSTOMER', 'FARMER'
+  name: '',
+  phone: '',
+  customerType: 'BULK',
+  organizationName: '',
+  licenseNo: '',
+  farmerUniqueId: null
+};
+
+// Initialize Page
+document.addEventListener('DOMContentLoaded', () => {
+  // Load saved theme if any
+  const savedTheme = localStorage.getItem('kisaan_theme') || 'theme-emerald';
+  changeTheme(savedTheme);
+
+  fetchProduce();
+  fetchFarmers();
+  fetchOrders();
+  fetchAiForecast();
+
+  // Poll silently every 4 seconds for live SMS / Orders updates
+  setInterval(() => {
+    fetchOrdersSilently();
+  }, 4000);
+});
+
+// Custom Theme Switcher
+function changeTheme(themeName) {
+  document.body.className = `bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col transition-colors duration-300 ${themeName}`;
+  localStorage.setItem('kisaan_theme', themeName);
+}
+
+// Tab Switcher
+function switchTab(tabName) {
+  ['buyer', 'ai', 'farmer', 'orders', 'login'].forEach(tab => {
+    const section = document.getElementById(`tab-${tab}`);
+    const navBtn = document.getElementById(`nav-${tab}`);
+    if (tab === tabName) {
+      section.classList.remove('hidden');
+      navBtn.className = "px-3.5 py-2 rounded-lg bg-white text-emerald-900 shadow font-bold transition-all";
+    } else {
+      section.classList.add('hidden');
+      navBtn.className = "px-3.5 py-2 rounded-lg text-emerald-100 hover:bg-white/10 transition-all";
+    }
+  });
+
+  if (tabName === 'ai' && activeForecasts.length === 0) {
+    fetchAiForecast();
+  }
+}
+
+// ==========================================
+// 1. AI DEMAND & MARKET PRICE FORECASTING
+// ==========================================
+
+async function fetchAiForecast() {
+  try {
+    const res = await fetch('/api/ai/demand-forecast');
+    const result = await res.json();
+    if (result.success) {
+      activeForecasts = result.forecasts;
+      renderAiForecastCards();
+    }
+  } catch (err) {
+    console.error('Error fetching AI forecasts', err);
+  }
+}
+
+function renderAiForecastCards() {
+  const container = document.getElementById('ai-forecast-grid');
+  if (!container || activeForecasts.length === 0) return;
+
+  container.innerHTML = activeForecasts.map(f => {
+    let statusClass = "bg-emerald-100 text-emerald-800 border-emerald-300";
+    let statusLabel = "High Buyer Inflow";
+    if (f.demandStatus === 'PEAK_SUPPLY_STABLE') {
+      statusClass = "bg-blue-100 text-blue-800 border-blue-300";
+      statusLabel = "Balanced Supply & Demand";
+    } else if (f.demandStatus === 'MODERATE_UPWARD') {
+      statusClass = "bg-amber-100 text-amber-800 border-amber-300";
+      statusLabel = "Prices Rising Upward";
+    }
+
+    return `
+      <div class="bg-slate-50 rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4 hover:border-emerald-400 transition">
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="font-black text-slate-900 text-base">${f.commodity}</h3>
+            <p class="text-[11px] text-slate-500">Market Arrival: <strong>${f.marketArrivalVolumeQuintals} Quintals</strong> • Elasticity: ${f.elasticityIndex}</p>
+          </div>
+          <span class="text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${statusClass}">
+            ${statusLabel}
+          </span>
+        </div>
+
+        <!-- Prices Comparison Box -->
+        <div class="grid grid-cols-3 gap-2 text-center bg-white p-3 rounded-xl border border-slate-200 text-xs">
+          <div>
+            <div class="text-[10px] text-slate-400 font-bold uppercase">Current Mandi</div>
+            <div class="font-bold text-slate-700 text-sm">₹${f.currentMandiRate}/kg</div>
+          </div>
+          <div class="border-x">
+            <div class="text-[10px] text-emerald-700 font-bold uppercase">Farmer Direct</div>
+            <div class="font-black text-emerald-700 text-sm">₹${f.farmerDirectPrice}/kg</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-amber-700 font-bold uppercase">AI 7-Day Target</div>
+            <div class="font-black text-amber-600 text-sm">₹${f.predictedNextWeekAvg}/kg</div>
+          </div>
+        </div>
+
+        <!-- 7-Day Trend Visual Bars -->
+        <div class="space-y-1">
+          <div class="flex justify-between text-[10px] font-bold text-slate-400 uppercase">
+            <span>7-Day Price Forecast Trajectory</span>
+            <span class="text-emerald-700">+12% Expected Gain</span>
+          </div>
+          <div class="flex items-end space-x-1.5 h-12 bg-white p-2 rounded-xl border">
+            ${f.sevenDayTrend.map((price, idx) => {
+              const heightPct = Math.round((price / 45) * 100);
+              return `
+                <div class="flex-1 flex flex-col items-center justify-end h-full group relative">
+                  <div class="w-full bg-emerald-500 group-hover:bg-amber-400 rounded-t transition-all" style="height: ${Math.min(100, heightPct)}%;"></div>
+                  <span class="text-[8px] text-slate-400 mt-0.5 font-bold">D${idx + 1}</span>
+                  <div class="absolute -top-6 bg-slate-900 text-white text-[9px] px-1 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none">₹${price}</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- AI Actionable Advice -->
+        <div class="space-y-2 text-xs border-t pt-3">
+          <div class="bg-emerald-50 p-2.5 rounded-xl border border-emerald-100 flex items-start space-x-2">
+            <i class="fa-solid fa-wheat-awn text-emerald-700 mt-0.5"></i>
+            <span class="text-emerald-900"><strong>For Farmers:</strong> ${f.recommendationForFarmers}</span>
+          </div>
+          <div class="bg-amber-50 p-2.5 rounded-xl border border-amber-100 flex items-start space-x-2">
+            <i class="fa-solid fa-store text-amber-700 mt-0.5"></i>
+            <span class="text-amber-900"><strong>For Buyers:</strong> ${f.recommendationForBuyers}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ==========================================
+// 2. AI MULTI-STOP ROUTE OPTIMIZATION SIM
+// ==========================================
+
+async function runAiRouteOptimizationSim() {
+  const crop = document.getElementById('route-sim-crop').value;
+  const qty = document.getElementById('route-sim-qty').value;
+  const resultCard = document.getElementById('route-result-card');
+
+  resultCard.innerHTML = `<div class="p-8 text-center text-slate-500"><i class="fa-solid fa-spinner fa-spin text-2xl mr-2 text-emerald-600"></i> Calculating shortest multi-stop pickup sequence and fuel footprint...</div>`;
+
+  try {
+    // 1. Run Aggregation first to see who supplies
+    const aggRes = await fetch('/api/ai/multi-farmer-aggregation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cropName: crop, demandedQuantityKg: qty })
+    });
+    const aggData = await aggRes.json();
+
+    // 2. Build stops based on pooled farmers
+    const stops = aggData.contributingFarmers.map((f, idx) => ({
+      stopIndex: idx + 1,
+      name: `${f.name} (${f.uniqueFarmerId})`,
+      location: f.location,
+      collectQtyKg: f.allocatedKg,
+      fpo: f.fpoAffiliation
+    }));
+
+    // 3. Optimize Route
+    const routeRes = await fetch('/api/ai/optimize-route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stops, destination: "APMC Market Yard, Pune - 411037" })
+    });
+    const routeData = await routeRes.json();
+
+    // Render Visual Route Map
+    resultCard.innerHTML = `
+      <div class="bg-slate-900 text-white rounded-2xl p-6 space-y-6 shadow-xl border border-slate-700">
+        
+        <!-- Header Metrics -->
+        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="bg-emerald-500 text-slate-950 font-black text-[10px] px-2.5 py-0.5 rounded-full uppercase">
+                TSP Route Solved
+              </span>
+              <h3 class="text-base font-black text-white">${routeData.vehicleType} Assigned</h3>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">Engine: ${routeData.optimizationEngine}</p>
+          </div>
+          <div class="flex items-center space-x-4 text-xs">
+            <div class="text-right">
+              <div class="text-emerald-400 font-bold text-sm">${routeData.totalDistanceKm} km</div>
+              <div class="text-[10px] text-slate-400">Total Route Distance</div>
+            </div>
+            <div class="text-right border-l border-slate-700 pl-4">
+              <div class="text-amber-400 font-bold text-sm">${routeData.estimatedTransitTime}</div>
+              <div class="text-[10px] text-slate-400">Total Travel ETA</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Environmental & Cost Savings Badge -->
+        <div class="bg-emerald-950/60 border border-emerald-700/50 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs text-emerald-200">
+          <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-leaf text-emerald-400 text-base"></i>
+            <span>Logistics Pooling Savings: <strong>₹${routeData.environmentalImpact.logisticsCostSavedINR}</strong> saved vs separate trips</span>
+          </div>
+          <div class="flex items-center space-x-3 text-[11px] text-slate-300">
+            <span>⛽ Fuel Saved: <strong>${routeData.environmentalImpact.fuelSavedLitres} L</strong></span>
+            <span>🌱 CO2 Cut: <strong>${routeData.environmentalImpact.co2SavedKg} kg</strong></span>
+          </div>
+        </div>
+
+        <!-- Interactive Visual Waypoint Map -->
+        <div class="space-y-4 pt-2">
+          <h4 class="text-xs font-black uppercase tracking-wider text-slate-400">Multi-Stop Waypoint Sequence:</h4>
+          
+          <div class="space-y-4 pl-2" id="route-waypoints-container">
+            ${routeData.waypoints.map((wp, idx) => {
+              let icon = "fa-warehouse text-blue-400";
+              let badgeColor = "bg-blue-950 text-blue-300 border-blue-800";
+              if (wp.type === 'FARM_PICKUP') {
+                icon = "fa-tractor text-emerald-400";
+                badgeColor = "bg-emerald-950 text-emerald-300 border-emerald-800";
+              } else if (wp.type === 'DELIVERY_DESTINATION') {
+                icon = "fa-location-dot text-amber-400";
+                badgeColor = "bg-amber-950 text-amber-300 border-amber-800";
+              }
+
+              return `
+                <div class="route-timeline-item relative flex items-start space-x-4 pl-8">
+                  <div class="absolute left-0 top-1 w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center text-xs shadow">
+                    <i class="fa-solid ${icon}"></i>
+                  </div>
+                  <div class="bg-slate-800/90 rounded-xl p-3 flex-1 border border-slate-700 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div class="flex items-center space-x-2">
+                        <span class="font-bold text-xs text-white">${wp.title}</span>
+                        <span class="text-[10px] font-mono px-2 py-0.5 rounded border ${badgeColor}">${wp.eta}</span>
+                      </div>
+                      <div class="text-[11px] text-slate-400 mt-0.5">${wp.location || ''}</div>
+                      <div class="text-[11px] text-emerald-300 font-medium mt-1">✓ ${wp.action}</div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+      </div>
+    `;
+  } catch (err) {
+    resultCard.innerHTML = `<div class="p-6 text-center text-rose-500 text-xs font-bold">Error calculating route optimization.</div>`;
+  }
+}
+
+// ==========================================
+// 3. PRODUCE CATALOG & MULTI-FARMER SHORTFALL
+// ==========================================
+
+async function fetchProduce() {
+  try {
+    const res = await fetch('/api/produce');
+    const result = await res.json();
+    if (result.success) {
+      currentProduceList = result.data;
+      renderProduceGrid();
+    }
+  } catch (err) {
+    console.error('Failed to load produce catalog', err);
+  }
+}
+
+function renderProduceGrid() {
+  const container = document.getElementById('produce-container');
+  if (currentProduceList.length === 0) {
+    container.innerHTML = `<div class="col-span-2 bg-white p-8 rounded-xl text-center text-slate-400">No produce available. Register a farmer first!</div>`;
+    return;
+  }
+
+  container.innerHTML = currentProduceList.map(p => `
+    <div onclick="selectProduce('${p.id}')" id="card-produce-${p.id}" class="produce-card bg-white p-5 rounded-2xl shadow-sm border-2 border-slate-200 hover:border-emerald-500 cursor-pointer transition flex flex-col justify-between space-y-4">
+      <div class="space-y-2">
+        <div class="flex items-start justify-between">
+          <span class="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase">${p.category}</span>
+          <span class="text-xs text-slate-500 font-semibold"><i class="fa-solid fa-boxes-stacked text-emerald-600 mr-1"></i>${p.availableKg} kg stock</span>
+        </div>
+        <h4 class="font-extrabold text-slate-800 text-base group-hover:text-emerald-700">${p.name}</h4>
+        
+        <div class="text-xs text-slate-500 flex items-center space-x-1">
+          <i class="fa-solid fa-location-dot text-rose-500"></i>
+          <span>${p.farmerLocation || 'Nashik, Maharashtra'}</span>
+        </div>
+
+        <div class="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border space-y-1">
+          <div class="flex items-center justify-between">
+            <span>Farmer: <strong class="text-slate-800">${p.farmerName}</strong></span>
+            <span class="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">${p.uniqueFarmerId}</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded text-[10px] font-bold">
+              🌾 ${p.fpoAffiliation || 'Independent Farmer'}
+            </span>
+            <span class="text-emerald-700 font-bold text-[10px]">✓ KYC Verified</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="border-t pt-3 flex items-center justify-between">
+        <div>
+          <span class="text-2xl font-black text-emerald-700">₹${p.pricePerKg}</span>
+          <span class="text-xs text-slate-400 font-medium">/ kg</span>
+        </div>
+        <button class="bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-200 transition">
+          Select Crop
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  if (currentProduceList.length > 0 && !selectedProduce) {
+    selectProduce(currentProduceList[0].id);
+  }
+}
+
+function selectProduce(produceId) {
+  const p = currentProduceList.find(item => item.id === produceId);
+  if (!p) return;
+
+  selectedProduce = p;
+
+  document.querySelectorAll('.produce-card').forEach(card => card.classList.remove('border-emerald-500', 'bg-emerald-50/20'));
+  const targetCard = document.getElementById(`card-produce-${produceId}`);
+  if (targetCard) targetCard.classList.add('border-emerald-500', 'bg-emerald-50/20');
+
+  document.getElementById('order-produce-id').value = p.id;
+  document.getElementById('selected-produce-badge').innerText = p.name;
+  document.getElementById('detail-crop-name').innerText = `${p.name} (${p.category})`;
+  document.getElementById('detail-farmer-name').innerText = `${p.farmerName} (${p.uniqueFarmerId})`;
+  document.getElementById('detail-fpo-badge').innerText = `FPO: ${p.fpoAffiliation || 'Independent'}`;
+  document.getElementById('detail-crop-price').innerText = `₹${p.pricePerKg} /kg`;
+  document.getElementById('single-stock-notice').innerText = `Single Farm Stock: ${p.availableKg} kg`;
+  document.getElementById('selected-produce-details').classList.remove('hidden');
+
+  handleQuantityInputChange();
+}
+
+async function handleQuantityInputChange() {
+  if (!selectedProduce) return;
+
+  const qty = parseFloat(document.getElementById('order-qty').value) || 0;
+  const shortfallBox = document.getElementById('shortfall-alert-box');
+  const explanation = document.getElementById('shortfall-explanation');
+  const pillsContainer = document.getElementById('pooled-farmers-pills');
+
+  // Check if demanded quantity exceeds primary farmer's stock!
+  if (qty > selectedProduce.availableKg) {
+    shortfallBox.classList.remove('hidden');
+    explanation.innerText = `Requested ${qty}kg exceeds ${selectedProduce.farmerName}'s harvest of ${selectedProduce.availableKg}kg. AI is pooling neighboring farms with shared route logistics...`;
+
+    try {
+      const res = await fetch('/api/ai/multi-farmer-aggregation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cropName: selectedProduce.name,
+          demandedQuantityKg: qty,
+          primaryFarmerId: selectedProduce.farmerId
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.isMultiFarmerPooled) {
+        currentShortfallData = data;
+        pillsContainer.innerHTML = data.contributingFarmers.map(f => `
+          <span class="bg-amber-200 text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400">
+            ${f.name}: ${f.allocatedKg}kg (₹${f.farmerPayoutINR})
+          </span>
+        `).join('');
+        explanation.innerText = data.summaryMessage;
+      }
+    } catch (err) {}
+  } else {
+    shortfallBox.classList.add('hidden');
+    currentShortfallData = null;
+  }
+
+  calculateTotalCost();
+}
+
+// Auto-assign transport vehicle strictly based on payload quantity (KG)
+function getTransportByQuantity(qtyKg) {
+  const qty = parseFloat(qtyKg) || 0;
+  if (qty <= 25) {
+    return {
+      type: '2wheeler',
+      name: '🛵 Bike Express',
+      fullName: '🛵 Two-Wheeler / Bike Express (Up to 25kg)',
+      icon: 'fa-motorcycle',
+      badge: '≤ 25 kg (Light Parcel)',
+      rate: 150,
+      description: `Auto-allocated for ${qty} kg parcel (≤ 25 kg bracket)`
+    };
+  } else if (qty <= 100) {
+    return {
+      type: 'auto',
+      name: '🛺 Auto Cargo (3-Wheeler)',
+      fullName: '🛺 Auto Cargo / 3-Wheeler (25kg – 100kg)',
+      icon: 'fa-truck-pickup',
+      badge: '25 – 100 kg (Medium Load)',
+      rate: 350,
+      description: `Auto-allocated for ${qty} kg load (25–100 kg bracket)`
+    };
+  } else if (qty <= 500) {
+    return {
+      type: 'minitruck',
+      name: '🚚 Mini Truck / SCV Pickup',
+      fullName: '🚚 Mini Truck / SCV Pickup (100kg – 500kg)',
+      icon: 'fa-truck-front',
+      badge: '100 – 500 kg (Retail Bulk)',
+      rate: 750,
+      description: `Auto-allocated for ${qty} kg cargo (100–500 kg bracket)`
+    };
+  } else {
+    return {
+      type: 'heavy',
+      name: '🚛 Commercial Heavy Truck',
+      fullName: '🚛 Commercial Heavy Truck (> 500kg)',
+      icon: 'fa-truck-moving',
+      badge: '> 500 kg (Wholesale Freight)',
+      rate: 1500,
+      description: `Auto-allocated for ${qty} kg heavy bulk (> 500 kg bracket)`
+    };
+  }
+}
+
+function calculateTotalCost() {
+  if (!selectedProduce) return;
+
+  const qty = parseFloat(document.getElementById('order-qty').value) || 0;
+  const transport = getTransportByQuantity(qty);
+
+  // Update hidden form field
+  const transportInput = document.getElementById('order-transport-type');
+  if (transportInput) transportInput.value = transport.type;
+
+  // Update read-only automated vehicle assignment card
+  const nameEl = document.getElementById('auto-transport-name');
+  const rateEl = document.getElementById('auto-transport-rate');
+  const badgeEl = document.getElementById('auto-transport-badge');
+  const descEl = document.getElementById('auto-transport-desc');
+  const iconEl = document.getElementById('auto-transport-icon');
+
+  if (nameEl) nameEl.innerText = transport.name;
+  if (rateEl) rateEl.innerText = `₹${transport.rate}`;
+  if (badgeEl) badgeEl.innerText = transport.badge;
+  if (descEl) descEl.innerText = transport.description;
+  if (iconEl) iconEl.className = `fa-solid ${transport.icon}`;
+
+  const cropCost = qty * selectedProduce.pricePerKg;
+  const transportFee = transport.rate;
+  const serviceFee = Math.round(cropCost * 0.02);
+  const total = cropCost + transportFee + serviceFee;
+
+  document.getElementById('summary-crop-cost').innerText = `₹${cropCost.toLocaleString()}`;
+  document.getElementById('summary-transport-fee').innerText = `₹${transportFee.toLocaleString()}`;
+  document.getElementById('summary-service-fee').innerText = `₹${serviceFee.toLocaleString()}`;
+  document.getElementById('summary-total-amount').innerText = `₹${total.toLocaleString()}`;
+}
+
+async function handleCreateOrder(e) {
+  e.preventDefault();
+
+  const produceId = document.getElementById('order-produce-id').value;
+  const qty = parseFloat(document.getElementById('order-qty').value) || 0;
+  const buyerName = document.getElementById('buyer-name').value;
+  const buyerPhone = document.getElementById('buyer-phone').value;
+  const deliveryAddress = document.getElementById('buyer-address').value;
+  const transportType = document.getElementById('order-transport-type')?.value || getTransportByQuantity(qty).type;
+
+  if (!produceId) {
+    alert('Please select a produce item first!');
+    return;
+  }
+
+  const btn = document.getElementById('btn-submit-order');
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Sending SMS Request to Farmer(s)...`;
+
+  try {
+    const isPooled = Boolean(currentShortfallData && currentShortfallData.isMultiFarmerPooled);
+    const contributors = isPooled ? currentShortfallData.contributingFarmers : [];
+
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        produceId,
+        quantityKg: qty,
+        buyerName,
+        buyerPhone,
+        deliveryAddress,
+        transportType,
+        items: [{ produceId, quantityKg: qty }],
+        isRetailShopOrOrg: currentUser.customerType === 'BULK',
+        organizationName: currentUser.organizationName,
+        isMultiFarmerPooled: isPooled,
+        pooledContributors: contributors
+      })
+    });
+
+    const result = await res.json();
+    if (result.success) {
+      openSmsDrawer();
+      fetchOrders();
+      switchTab('orders');
+    } else {
+      alert(result.message || 'Failed to create order');
+    }
+  } catch (err) {
+    alert('Error connecting to backend server.');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i class="fa-solid fa-paper-plane mr-2"></i> Send Request via SMS to Farmer(s)`;
+  }
+}
+
+// ==========================================
+// 4. FARMER ONBOARDING WITH FPO AFFILIATION
+// ==========================================
+
+function handleFpoSelectChange(val) {
+  const customInput = document.getElementById('farmer-fpo-custom');
+  if (val === 'OTHER') {
+    customInput.classList.remove('hidden');
+    customInput.required = true;
+  } else {
+    customInput.classList.add('hidden');
+    customInput.required = false;
+  }
+}
+
+async function handleRegisterFarmer(e) {
+  e.preventDefault();
+  const name = document.getElementById('farmer-name').value;
+  const phone = document.getElementById('farmer-phone').value;
+  const location = document.getElementById('farmer-location').value;
+  const upiId = document.getElementById('farmer-upi').value;
+  const produceName = document.getElementById('farmer-produce-name').value;
+  const pricePerKg = document.getElementById('farmer-produce-price').value;
+  const availableKg = document.getElementById('farmer-produce-qty').value;
+  const kycType = document.getElementById('farmer-kyc-type').value;
+
+  const fpoSelect = document.getElementById('farmer-fpo-select').value;
+  const fpoCustom = document.getElementById('farmer-fpo-custom').value;
+  const finalFpo = fpoSelect === 'OTHER' ? fpoCustom : fpoSelect;
+
+  const kycFileInput = document.getElementById('farmer-kyc-file');
+  const farmPhotoInput = document.getElementById('farmer-farm-photo');
+  const hasFiles = (kycFileInput && kycFileInput.files.length > 0) || (farmPhotoInput && farmPhotoInput.files.length > 0);
+
+  try {
+    let res;
+    if (hasFiles) {
+      const formData = new FormData();
+      formData.append('name', name);
+      formData.append('phone', phone);
+      formData.append('location', location);
+      formData.append('upiId', upiId);
+      formData.append('produceName', produceName);
+      formData.append('pricePerKg', pricePerKg);
+      formData.append('availableKg', availableKg);
+      formData.append('kycDocType', kycType);
+      if (finalFpo) formData.append('fpoAffiliation', finalFpo);
+      if (kycFileInput && kycFileInput.files[0]) formData.append('kycDoc', kycFileInput.files[0]);
+      if (farmPhotoInput && farmPhotoInput.files[0]) formData.append('farmPhoto', farmPhotoInput.files[0]);
+
+      res = await fetch('/api/farmers/register-with-docs', {
+        method: 'POST',
+        body: formData
+      });
+    } else {
+      res = await fetch('/api/farmers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          phone,
+          location,
+          upiId,
+          produceName,
+          pricePerKg,
+          availableKg,
+          kycDocType: kycType,
+          fpoAffiliation: finalFpo || null
+        })
+      });
+    }
+
+    const result = await res.json();
+    if (result.success) {
+      alert(`🎉 Farmer ${name} registered successfully! Assigned Unique Farmer ID: ${result.farmer.uniqueFarmerId}. FPO: ${result.farmer.fpoAffiliation || 'Independent'}. KYC Documents Saved in Database!`);
+      fetchProduce();
+      fetchFarmers();
+      switchTab('buyer');
+    }
+  } catch (err) {
+    alert('Error registering farmer');
+  }
+}
+
+async function fetchFarmers() {
+  try {
+    const res = await fetch('/api/farmers');
+    const result = await res.json();
+    if (result.success) {
+      const container = document.getElementById('registered-farmers-list');
+      container.innerHTML = result.data.map(f => `
+        <div class="bg-slate-50 p-3.5 rounded-xl border flex items-center justify-between text-xs">
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-bold text-slate-800">${f.name}</span>
+              <span class="font-mono text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">${f.uniqueFarmerId}</span>
+              <span class="bg-amber-100 text-amber-900 font-bold px-1.5 py-0.2 rounded text-[10px]">🌾 ${f.fpoAffiliation || 'Independent Kisaan'}</span>
+            </div>
+            <div class="text-[11px] text-slate-500 mt-1">${f.location} • UPI: <span class="font-mono text-emerald-700">${f.upiId}</span></div>
+          </div>
+          <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">${f.produce.length} Active Crops</span>
+        </div>
+      `).join('');
+    }
+  } catch (err) {}
+}
+
+// ==========================================
+// 5. ORDERS TRACKING & DELIVERY OTP
+// ==========================================
+
+async function fetchOrders() {
+  try {
+    const res = await fetch('/api/orders');
+    const result = await res.json();
+    if (result.success) {
+      currentOrders = result.orders;
+      currentSmsLogs = result.smsLogs;
+      renderOrdersList();
+      renderSmsDrawer();
+
+      const pendingCount = currentOrders.filter(o => o.status === 'SMS_SENT' || o.status === 'FARMER_ACCEPTED').length;
+      const badge = document.getElementById('orders-badge');
+      if (pendingCount > 0) {
+        badge.innerText = pendingCount;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+
+      document.getElementById('sms-count').innerText = currentSmsLogs.length;
+    }
+  } catch (err) {}
+}
+
+async function fetchOrdersSilently() {
+  try {
+    const res = await fetch('/api/orders');
+    const result = await res.json();
+    if (result.success) {
+      currentOrders = result.orders;
+      currentSmsLogs = result.smsLogs;
+      renderOrdersList();
+      renderSmsDrawer();
+    }
+  } catch (err) {}
+}
+
+function renderOrdersList() {
+  const container = document.getElementById('orders-list-container');
+  if (currentOrders.length === 0) {
+    container.innerHTML = `<div class="bg-white p-12 rounded-2xl border text-center text-slate-400">No orders placed yet. Configure an order from the Buyer Storefront!</div>`;
+    return;
+  }
+
+  container.innerHTML = currentOrders.map(o => {
+    let step1Class = "bg-emerald-600 text-white font-bold";
+    let step2Class = o.status !== 'SMS_SENT' ? "bg-emerald-600 text-white font-bold" : "bg-slate-200 text-slate-500 font-bold";
+    let step3Class = o.status === 'DELIVERED_PAID' ? "bg-emerald-600 text-white font-bold" : "bg-slate-200 text-slate-500 font-bold";
+
+    let statusBadge = `<span class="bg-amber-100 text-amber-800 text-xs font-extrabold px-3 py-1 rounded-full"><i class="fa-solid fa-clock mr-1"></i> Awaiting Farmer SMS Accept</span>`;
+    if (o.status === 'FARMER_ACCEPTED') {
+      statusBadge = `<span class="bg-emerald-100 text-emerald-800 text-xs font-extrabold px-3 py-1 rounded-full"><i class="fa-solid fa-circle-check mr-1"></i> Farmer Accepted Order</span>`;
+    } else if (o.status === 'DELIVERED_PAID') {
+      statusBadge = `<span class="bg-blue-100 text-blue-800 text-xs font-extrabold px-3 py-1 rounded-full"><i class="fa-solid fa-circle-dollar-to-slot mr-1"></i> Delivered & UPI Payout Settled</span>`;
+    } else if (o.status === 'DECLINED') {
+      statusBadge = `<span class="bg-rose-100 text-rose-800 text-xs font-extrabold px-3 py-1 rounded-full"><i class="fa-solid fa-circle-xmark mr-1"></i> Farmer Declined Order</span>`;
+    }
+
+    const farmerName = o.farmerName || 'Ramesh Kumar';
+    const farmerPhone = o.farmerPhone || '+91 9876543210';
+    const farmerUpi = o.farmerUpi || 'ramesh@ybl';
+    const farmerFpo = o.fpoAffiliation || 'Independent Kisaan';
+
+    return `
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4">
+        
+        <!-- Header -->
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-extrabold text-slate-800 text-base">Order #${o.id}</span>
+              ${statusBadge}
+              ${o.isMultiFarmerPooled ? `<span class="bg-amber-200 text-amber-950 font-black text-[10px] px-2 py-0.5 rounded-full"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>AI Multi-Farmer Pooled</span>` : ''}
+            </div>
+            <p class="text-xs text-slate-500">Placed on ${new Date(o.createdAt).toLocaleString()}</p>
+          </div>
+          <div class="text-right">
+            <div class="text-lg font-black text-emerald-700">₹${o.totalAmount.toLocaleString()}</div>
+            <div class="text-[11px] text-slate-400">Total Farmer Payout: <strong>₹${o.cropCost.toLocaleString()}</strong></div>
+          </div>
+        </div>
+
+        <!-- Details Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs bg-slate-50 p-3.5 rounded-xl border">
+          <div>
+            <div class="text-slate-400 font-medium">Produce & Quantity:</div>
+            <div class="font-bold text-slate-800 text-sm">${o.quantityKg} kg of ${o.produceName}</div>
+          </div>
+          <div>
+            <div class="text-slate-400 font-medium">Farmer / FPO Info:</div>
+            <div class="font-bold text-slate-800">${farmerName} (${farmerPhone})</div>
+            <div class="text-[11px] text-amber-800 font-bold">FPO: ${farmerFpo} • UPI: ${farmerUpi}</div>
+          </div>
+          <div>
+            <div class="text-slate-400 font-medium">Logistics & Destination:</div>
+            <div class="font-bold text-slate-800">${o.transportType}</div>
+            <div class="text-[11px] text-slate-500">Deliver to: ${o.deliveryAddress}</div>
+          </div>
+        </div>
+
+        <!-- If Multi-Farmer Pooled: Show Breakdown -->
+        ${o.isMultiFarmerPooled && o.pooledContributors && o.pooledContributors.length > 1 ? `
+          <div class="bg-amber-50/80 p-3 rounded-xl border border-amber-200 text-xs space-y-1">
+            <div class="font-bold text-amber-900 flex items-center">
+              <i class="fa-solid fa-people-carry-box text-amber-700 mr-1.5"></i>
+              Multi-Farmer Shared Pickup Breakdown (Fulfilling Harvest Shortfall):
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              ${o.pooledContributors.map(c => `
+                <div class="bg-white p-2 rounded-lg border text-[11px] flex justify-between items-center">
+                  <span><strong>${c.name}</strong> (${c.fpoAffiliation || 'Independent'})</span>
+                  <span class="text-emerald-700 font-bold">${c.allocatedKg}kg • ₹${c.farmerPayoutINR}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Live Visual Stepper -->
+        <div class="py-2">
+          <div class="flex items-center justify-between text-xs text-slate-500 font-semibold mb-2">
+            <span>1. SMS Alert Dispatched</span>
+            <span>2. Farmer SMS Confirmation</span>
+            <span>3. Delivery OTP & UPI Settlement</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <div class="w-7 h-7 rounded-full ${step1Class} flex items-center justify-center text-xs">1</div>
+            <div class="flex-1 h-1 ${o.status !== 'SMS_SENT' ? 'bg-emerald-500' : 'bg-slate-200'}"></div>
+            <div class="w-7 h-7 rounded-full ${step2Class} flex items-center justify-center text-xs">2</div>
+            <div class="flex-1 h-1 ${o.status === 'DELIVERED_PAID' ? 'bg-emerald-500' : 'bg-slate-200'}"></div>
+            <div class="w-7 h-7 rounded-full ${step3Class} flex items-center justify-center text-xs">3</div>
+          </div>
+        </div>
+
+        <!-- Action / Verification Panel -->
+        ${o.status === 'SMS_SENT' ? `
+          <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs">
+            <div class="text-amber-800 flex items-center space-x-2">
+              <i class="fa-solid fa-mobile-retro text-base text-amber-600"></i>
+              <span>SMS has been sent to farmer's phone (${farmerPhone}).</span>
+            </div>
+            <button onclick="handleSimulateFarmerSms('${o.id}', 'ACCEPT')" class="theme-primary-btn bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg shadow text-xs transition mt-2 sm:mt-0">
+              <i class="fa-solid fa-check mr-1"></i> Simulate Farmer Replying "ACCEPT" via SMS
+            </button>
+          </div>
+        ` : ''}
+
+        ${o.status === 'FARMER_ACCEPTED' ? `
+          <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
+            <div class="flex flex-wrap items-center justify-between text-xs border-b border-emerald-200 pb-2">
+              <div class="text-emerald-900 font-bold flex items-center space-x-2">
+                <i class="fa-solid fa-truck-ramp-box text-emerald-600 text-base"></i>
+                <span>Order In Transit! Verify Delivery with Buyer OTP:</span>
+              </div>
+              <div class="bg-emerald-900 text-amber-300 px-2.5 py-1 rounded-lg font-mono font-bold text-xs tracking-wider">
+                Buyer Delivery OTP: ${o.deliveryOtp}
+              </div>
+            </div>
+
+            <!-- OTP Input Form -->
+            <div class="flex items-center space-x-2">
+              <input type="text" id="otp-input-${o.id}" placeholder="Enter 4-digit OTP" maxlength="4" class="bg-white border border-emerald-300 rounded-lg px-3 py-1.5 text-sm font-bold tracking-widest text-center w-36 outline-none focus:ring-2 focus:ring-emerald-500">
+              <button onclick="handleVerifyDeliveryOtp('${o.id}')" class="theme-primary-btn bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2 rounded-lg shadow transition flex items-center">
+                <i class="fa-solid fa-shield-check mr-1.5"></i> Confirm Delivery & Trigger Instant UPI Payout
+              </button>
+            </div>
+          </div>
+        ` : ''}
+
+        ${o.status === 'DELIVERED_PAID' ? `
+          <div class="bg-slate-900 text-white rounded-xl p-4 border border-emerald-500 space-y-2 text-xs">
+            <div class="flex items-center justify-between text-emerald-400 font-extrabold text-sm border-b border-slate-800 pb-2">
+              <span class="flex items-center"><i class="fa-solid fa-circle-check text-base mr-2 text-emerald-400"></i> UPI Instant Settlement Completed</span>
+              <span class="font-mono text-amber-300">${o.payoutTxnId || 'UPI-SETTLED'}</span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-slate-300 pt-1">
+              <div>Amount Transferred: <strong class="text-white">₹${o.cropCost.toLocaleString()}</strong></div>
+              <div>Farmer Account VPA: <strong class="text-white font-mono">${farmerUpi}</strong></div>
+              <div>Status: <strong class="text-emerald-400">100% Settled (Zero Middlemen)</strong></div>
+            </div>
+          </div>
+        ` : ''}
+
+      </div>
+    `;
+  }).join('');
+}
+
+async function handleSimulateFarmerSms(orderId, action) {
+  try {
+    const res = await fetch(`/api/orders/${orderId}/sms-reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    });
+    const result = await res.json();
+    if (result.success) {
+      fetchOrders();
+    }
+  } catch (err) {}
+}
+
+async function handleVerifyDeliveryOtp(orderId) {
+  const otp = document.getElementById(`otp-input-${orderId}`).value;
+  if (!otp) {
+    alert('Please enter the 4-digit Delivery OTP!');
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/orders/${orderId}/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otp })
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert(`🎉 Delivery Confirmed! ₹${result.payout.amount} credited instantly to farmer's UPI (${result.payout.upiId}).`);
+      fetchOrders();
+    } else {
+      alert(result.message || 'OTP verification failed.');
+    }
+  } catch (err) {
+    alert('Error verifying OTP.');
+  }
+}
+
+// ==========================================
+// 6. DEDICATED LOGIN & AUTHENTICATION
+// ==========================================
+
+function selectLoginRole(role) {
+  const custBtn = document.getElementById('login-role-customer');
+  const farmBtn = document.getElementById('login-role-farmer');
+  const custFlow = document.getElementById('login-customer-flow');
+  const farmFlow = document.getElementById('login-farmer-flow');
+
+  if (role === 'CUSTOMER') {
+    custBtn.className = "border-2 border-emerald-600 bg-emerald-50/60 p-4 rounded-xl text-center transition";
+    farmBtn.className = "border-2 border-slate-200 hover:border-emerald-400 p-4 rounded-xl text-center transition bg-slate-50";
+    custFlow.classList.remove('hidden');
+    farmFlow.classList.add('hidden');
+  } else {
+    farmBtn.className = "border-2 border-emerald-600 bg-emerald-50/60 p-4 rounded-xl text-center transition";
+    custBtn.className = "border-2 border-slate-200 hover:border-emerald-400 p-4 rounded-xl text-center transition bg-slate-50";
+    farmFlow.classList.remove('hidden');
+    custFlow.classList.add('hidden');
+  }
+}
+
+function selectCustomerPurchaseType(type) {
+  const bulkSection = document.getElementById('bulk-anti-middleman-section');
+  if (type === 'BULK') {
+    bulkSection.classList.remove('hidden');
+  } else {
+    bulkSection.classList.add('hidden');
+  }
+}
+
+async function handleCustomerLoginSubmit(e) {
+  e.preventDefault();
+  const name = document.getElementById('login-cust-name').value;
+  const phone = document.getElementById('login-cust-phone').value;
+  const isBulk = document.getElementById('radio-bulk').checked;
+  const orgName = document.getElementById('login-org-name').value;
+  const licenseNo = document.getElementById('login-org-license').value;
+  const docFile = document.getElementById('login-org-doc')?.files?.[0];
+
+  try {
+    // 1. Register / login in SQLite database via Auth API
+    const authRes = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone,
+        fullName: name,
+        role: 'CUSTOMER',
+        customerType: isBulk ? 'BULK' : 'HOUSEHOLD',
+        organizationName: isBulk ? orgName : '',
+        licenseNo: isBulk ? licenseNo : ''
+      })
+    });
+    const authData = await authRes.json();
+    if (authData.token) {
+      localStorage.setItem('kisaan_jwt_token', authData.token);
+    }
+
+    // 2. If trade document file was attached, upload it
+    if (docFile && isBulk) {
+      const docFormData = new FormData();
+      docFormData.append('tradeLicense', docFile);
+      await fetch('/api/auth/customer-verify-doc', {
+        method: 'POST',
+        headers: authData.token ? { 'Authorization': `Bearer ${authData.token}` } : {},
+        body: docFormData
+      });
+    }
+
+    currentUser = {
+      isLoggedIn: true,
+      role: 'CUSTOMER',
+      name: name,
+      phone: phone,
+      customerType: isBulk ? 'BULK' : 'HOUSEHOLD',
+      organizationName: isBulk ? orgName : '',
+      licenseNo: isBulk ? licenseNo : '',
+      farmerUniqueId: null
+    };
+
+    updateUserSessionUI();
+    document.getElementById('buyer-name').value = currentUser.name + (isBulk ? ` (${orgName})` : '');
+    document.getElementById('buyer-phone').value = currentUser.phone;
+
+    alert(`✅ Logged in successfully as Customer: ${name}! ${isBulk ? 'Retail Shop Verified & Saved to Database.' : 'Household mode active.'}`);
+    switchTab('buyer');
+  } catch (err) {
+    alert('Error connecting to backend authentication.');
+  }
+}
+
+function handleFarmerLoginSubmit(e) {
+  e.preventDefault();
+  const phone = document.getElementById('login-farmer-phone').value;
+
+  const matchedFarmer = currentProduceList.find(p => p.farmerPhone === phone || p.farmerPhone.includes(phone.slice(-10)));
+  const farmerName = matchedFarmer ? matchedFarmer.farmerName : 'Farmer Partner';
+  const farmerUid = matchedFarmer ? matchedFarmer.uniqueFarmerId : 'KISAN-MH-4019';
+
+  currentUser = {
+    isLoggedIn: true,
+    role: 'FARMER',
+    name: farmerName,
+    phone: phone,
+    customerType: null,
+    organizationName: '',
+    licenseNo: '',
+    farmerUniqueId: farmerUid
+  };
+
+  updateUserSessionUI();
+  alert(`Welcome back, ${farmerName}! Assigned Farmer ID: ${farmerUid}.`);
+  switchTab('farmer');
+}
+
+function updateUserSessionUI() {
+  const banner = document.getElementById('logged-user-banner');
+  const bannerText = document.getElementById('logged-user-text');
+  const tabLabel = document.getElementById('login-tab-label');
+
+  if (currentUser.isLoggedIn) {
+    banner.classList.remove('hidden');
+    if (currentUser.role === 'FARMER') {
+      bannerText.innerHTML = `Logged in as: <strong>👨‍🌾 ${currentUser.name}</strong> (Farmer ID: <span class="font-mono text-amber-300 font-bold">${currentUser.farmerUniqueId}</span> • KYC Verified)`;
+      tabLabel.innerText = currentUser.name.split(' ')[0];
+    } else {
+      const typeLabel = currentUser.customerType === 'BULK' ? `Retail Bulk Buyer - ${currentUser.organizationName}` : 'Household Consumer';
+      bannerText.innerHTML = `Logged in as: <strong>🛒 ${currentUser.name}</strong> (${typeLabel})`;
+      tabLabel.innerText = currentUser.name.split(' ')[0];
+    }
+  } else {
+    banner.classList.add('hidden');
+    tabLabel.innerText = 'Login';
+  }
+}
+
+function handleLogout() {
+  currentUser = {
+    isLoggedIn: false,
+    role: 'GUEST',
+    name: '',
+    phone: '',
+    customerType: 'BULK',
+    organizationName: '',
+    licenseNo: '',
+    farmerUniqueId: null
+  };
+  updateUserSessionUI();
+  alert('You have logged out.');
+  switchTab('buyer');
+}
+
+// ==========================================
+// 7. VIRTUAL SMS DRAWER
+// ==========================================
+
+function toggleSmsDrawer() {
+  const drawer = document.getElementById('sms-drawer');
+  drawer.classList.toggle('translate-x-full');
+}
+
+function openSmsDrawer() {
+  const drawer = document.getElementById('sms-drawer');
+  drawer.classList.remove('translate-x-full');
+}
+
+function renderSmsDrawer() {
+  const container = document.getElementById('sms-log-list');
+  if (currentSmsLogs.length === 0) {
+    container.innerHTML = `<div class="text-center text-xs text-slate-500 py-10">No SMS sent yet.</div>`;
+    return;
+  }
+
+  container.innerHTML = currentSmsLogs.map(sms => `
+    <div class="sms-bubble p-3 rounded-xl space-y-1 text-xs shadow">
+      <div class="flex items-center justify-between text-[11px] text-slate-400">
+        <span>To: <strong class="text-amber-300 font-mono">${sms.to}</strong></span>
+        <span>${sms.timestamp}</span>
+      </div>
+      <div class="text-slate-200 font-mono text-[11px] leading-relaxed break-words">${sms.message}</div>
+      ${sms.orderId ? `
+        <div class="pt-1.5 flex items-center space-x-2">
+          <button onclick="handleSimulateFarmerSms('${sms.orderId}', 'ACCEPT')" class="theme-primary-btn bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2.5 py-1 rounded transition">
+            Reply ACCEPT via SMS
+          </button>
+          <button onclick="handleSimulateFarmerSms('${sms.orderId}', 'DECLINE')" class="bg-rose-700 hover:bg-rose-800 text-white text-[10px] font-bold px-2.5 py-1 rounded transition">
+            Reply DECLINE
+          </button>
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+}
