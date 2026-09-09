@@ -1,4 +1,22 @@
-// KisaanDirect Platform Engine with AI Forecast & Route Optimization
+// Masking utilities for farmer privacy (8792XXXX89 format)
+function maskPhoneNumber(phone) {
+  if (!phone) return '8792XXXX89';
+  const clean = phone.replace(/[^0-9]/g, '');
+  if (clean.length >= 10) {
+    const last10 = clean.slice(-10);
+    return `${last10.slice(0, 4)}XXXX${last10.slice(-2)}`;
+  }
+  return '8792XXXX89';
+}
+
+function maskUpiId(upi) {
+  if (!upi) return 'Escrow Account (Protected)';
+  const parts = upi.split('@');
+  if (parts.length === 2) {
+    return `${parts[0].charAt(0)}****@${parts[1]}`;
+  }
+  return 'Escrow Account (Protected)';
+}
 
 let currentProduceList = [];
 let selectedProduce = null;
@@ -8,6 +26,10 @@ let activeForecasts = [];
 
 // Multi-Farmer Aggregation State
 let currentShortfallData = null;
+
+// Payment & QR Modal State
+let pendingCheckoutData = null;
+let activeDeliveryQrOrderId = null;
 
 // User State (Guest by default)
 let currentUser = {
@@ -766,10 +788,29 @@ function calculateTotalCost() {
   const serviceFee = Math.round(cropCost * 0.02);
   const total = cropCost + transportFee + serviceFee;
 
+  // 40% Advance for Bulk Buyers (or quantity >= 50kg)
+  const isBulk = (currentUser.customerType === 'BULK') || qty >= 50;
+  const advanceAmount = isBulk ? Math.round(total * 0.40) : total;
+  const balanceAmount = total - advanceAmount;
+
   document.getElementById('summary-crop-cost').innerText = `₹${cropCost.toLocaleString()}`;
   document.getElementById('summary-transport-fee').innerText = `₹${transportFee.toLocaleString()}`;
   document.getElementById('summary-service-fee').innerText = `₹${serviceFee.toLocaleString()}`;
   document.getElementById('summary-total-amount').innerText = `₹${total.toLocaleString()}`;
+
+  const advEl = document.getElementById('summary-advance-amount');
+  const balEl = document.getElementById('summary-balance-amount');
+  if (advEl) advEl.innerText = `₹${advanceAmount.toLocaleString()}`;
+  if (balEl) balEl.innerText = `₹${balanceAmount.toLocaleString()}`;
+
+  const submitTextEl = document.getElementById('btn-submit-text');
+  if (submitTextEl) {
+    if (isBulk) {
+      submitTextEl.innerText = `Pay 40% Advance (₹${advanceAmount.toLocaleString()}) & Place Order`;
+    } else {
+      submitTextEl.innerText = `Pay Total (₹${total.toLocaleString()}) & Place Order`;
+    }
+  }
 }
 
 async function handleCreateOrder(e) {
@@ -787,34 +828,106 @@ async function handleCreateOrder(e) {
     return;
   }
 
-  const btn = document.getElementById('btn-submit-order');
+  const transport = getTransportByQuantity(qty);
+  const cropCost = qty * selectedProduce.pricePerKg;
+  const transportFee = transport.rate;
+  const serviceFee = Math.round(cropCost * 0.02);
+  const total = cropCost + transportFee + serviceFee;
+
+  const isBulk = (currentUser.customerType === 'BULK') || qty >= 50;
+  const advanceAmount = isBulk ? Math.round(total * 0.40) : total;
+  const balanceAmount = total - advanceAmount;
+
+  const isPooled = Boolean(currentShortfallData && currentShortfallData.isMultiFarmerPooled);
+  const contributors = isPooled ? currentShortfallData.contributingFarmers : [];
+
+  // Stage order parameters for third-party Razorpay checkout
+  pendingCheckoutData = {
+    produceId,
+    quantityKg: qty,
+    buyerName,
+    buyerPhone,
+    deliveryAddress,
+    transportType,
+    items: [{ produceId, quantityKg: qty }],
+    isBulk,
+    isRetailShopOrOrg: isBulk,
+    organizationName: currentUser.organizationName,
+    isMultiFarmerPooled: isPooled,
+    pooledContributors: contributors,
+    totalAmount: total,
+    advanceAmount,
+    balanceAmount,
+    cropName: selectedProduce.name
+  };
+
+  // Launch third-party Razorpay Escrow checkout simulation modal
+  openRazorpayModal({
+    amount: advanceAmount,
+    isBulk,
+    cropName: selectedProduce.name
+  });
+}
+
+// ==========================================
+// 3B. RAZORPAY PAYMENT SIMULATION & ESCROW
+// ==========================================
+
+function openRazorpayModal({ amount, isBulk, cropName }) {
+  const modal = document.getElementById('razorpay-modal');
+  if (!modal) return;
+
+  const purposeEl = document.getElementById('rzp-order-purpose');
+  const amountEl = document.getElementById('rzp-amount-display');
+  const labelEl = document.getElementById('rzp-escrow-type-label');
+  const descEl = document.getElementById('rzp-escrow-desc');
+  const btnTextEl = document.getElementById('rzp-pay-button-text');
+
+  if (purposeEl) purposeEl.innerText = `${cropName} Direct Order`;
+  if (amountEl) amountEl.innerText = `₹${amount.toLocaleString()}`;
+  if (labelEl) labelEl.innerText = isBulk ? '40% Advance Escrow Payment (Razorpay)' : 'Full Order Escrow Payment (Razorpay)';
+  if (descEl) {
+    descEl.innerText = isBulk
+      ? 'Only 40% is charged upfront to build mutual faith with bulk buyers. 60% balance is payable strictly at physical delivery via In-App QR.'
+      : 'Funds are securely locked in Razorpay third-party escrow until delivery handover is confirmed.';
+  }
+  if (btnTextEl) btnTextEl.innerText = `Authorize & Pay ₹${amount.toLocaleString()} via Razorpay`;
+
+  modal.classList.remove('hidden');
+}
+
+function closeRazorpayModal() {
+  const modal = document.getElementById('razorpay-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function confirmSimulatedRazorpayPayment() {
+  if (!pendingCheckoutData) return;
+
+  const btn = document.getElementById('rzp-pay-button');
+  const originalText = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Sending SMS Request to Farmer(s)...`;
+  btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Verifying Razorpay Escrow...`;
 
   try {
-    const isPooled = Boolean(currentShortfallData && currentShortfallData.isMultiFarmerPooled);
-    const contributors = isPooled ? currentShortfallData.contributingFarmers : [];
+    // Simulate real gateway response delay
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    const advanceTxnId = 'RZP_ADV_' + Date.now().toString().slice(-8);
 
     const res = await fetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        produceId,
-        quantityKg: qty,
-        buyerName,
-        buyerPhone,
-        deliveryAddress,
-        transportType,
-        items: [{ produceId, quantityKg: qty }],
-        isRetailShopOrOrg: currentUser.customerType === 'BULK',
-        organizationName: currentUser.organizationName,
-        isMultiFarmerPooled: isPooled,
-        pooledContributors: contributors
+        ...pendingCheckoutData,
+        advanceTxnId
       })
     });
 
     const result = await res.json();
     if (result.success) {
+      closeRazorpayModal();
+      pendingCheckoutData = null;
       openSmsDrawer();
       fetchOrders();
       switchTab('orders');
@@ -822,12 +935,75 @@ async function handleCreateOrder(e) {
       alert(result.message || 'Failed to create order');
     }
   } catch (err) {
-    alert('Error connecting to backend server.');
+    alert('Error connecting to backend server during payment authorization.');
   } finally {
     btn.disabled = false;
-    btn.innerHTML = `<i class="fa-solid fa-paper-plane mr-2"></i> Send Request via SMS to Farmer(s)`;
+    btn.innerHTML = originalText;
   }
 }
+
+// ==========================================
+// 3C. IN-APP DYNAMIC DELIVERY BALANCE QR
+// ==========================================
+
+function openDeliveryQrModal(orderId, balanceAmount) {
+  activeDeliveryQrOrderId = orderId;
+  const modal = document.getElementById('delivery-qr-modal');
+  if (!modal) return;
+
+  const orderIdEl = document.getElementById('modal-qr-order-id');
+  const balanceEl = document.getElementById('modal-qr-balance-display');
+  const amtSpan = document.getElementById('modal-confirm-btn-amt');
+  const qrImg = document.getElementById('modal-delivery-qr-img');
+
+  if (orderIdEl) orderIdEl.innerText = `#${orderId}`;
+  if (balanceEl) balanceEl.innerText = `₹${balanceAmount.toLocaleString()}`;
+  if (amtSpan) amtSpan.innerText = balanceAmount.toLocaleString();
+
+  const escrowVpa = 'kisaandirect.escrow@icici';
+  const payeeName = 'KisaanDirect Official Escrow';
+  const note = `Order ${orderId} Delivery Balance`;
+  const upiUri = `upi://pay?pa=${escrowVpa}&pn=${encodeURIComponent(payeeName)}&am=${balanceAmount}&tn=${encodeURIComponent(note)}&cu=INR`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiUri)}&margin=8`;
+
+  if (qrImg) qrImg.src = qrUrl;
+
+  modal.classList.remove('hidden');
+}
+
+function closeDeliveryQrModal() {
+  const modal = document.getElementById('delivery-qr-modal');
+  if (modal) modal.classList.add('hidden');
+  activeDeliveryQrOrderId = null;
+}
+
+async function confirmBalancePaidFromModal() {
+  if (!activeDeliveryQrOrderId) return;
+  await handleConfirmBalancePayment(activeDeliveryQrOrderId);
+  closeDeliveryQrModal();
+}
+
+async function handleConfirmBalancePayment(orderId) {
+  try {
+    const res = await fetch(`/api/orders/${orderId}/pay-balance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        balanceTxnId: 'UPI_BAL_' + Date.now().toString().slice(-8)
+      })
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert(`✅ 60% Balance Paid via Official App QR! Ref: ${result.balanceTxnId}. Escrow settlement verified. You can now verify the Delivery OTP with driver.`);
+      fetchOrders();
+    } else {
+      alert(result.message || 'Could not verify balance payment');
+    }
+  } catch (err) {
+    alert('Error connecting to backend payment gateway.');
+  }
+}
+
 
 // ==========================================
 // 4. FARMER ONBOARDING WITH FPO AFFILIATION
@@ -998,10 +1174,18 @@ function renderOrdersList() {
       statusBadge = `<span class="bg-rose-100 text-rose-800 text-xs font-extrabold px-3 py-1 rounded-full"><i class="fa-solid fa-circle-xmark mr-1"></i> Farmer Declined Order</span>`;
     }
 
-    const farmerName = o.farmerName || 'Ramesh Kumar';
-    const farmerPhone = o.farmerPhone || '+91 9876543210';
-    const farmerUpi = o.farmerUpi || 'ramesh@ybl';
+    // Cryptographically mask farmer credentials for customer privacy (8792XXXX89 format)
+    const farmerName = o.farmerName || 'Farmer Partner';
+    const farmerPhone = maskPhoneNumber(o.farmerPhone || o.rawFarmerPhone);
+    const farmerUpi = maskUpiId(o.farmerUpi || o.rawFarmerUpi);
     const farmerFpo = o.fpoAffiliation || 'Independent Kisaan';
+
+    const advanceAmount = o.advanceAmount || (o.isBulk ? Math.round(o.totalAmount * 0.40) : o.totalAmount);
+    const balanceAmount = o.balanceAmount !== undefined ? o.balanceAmount : (o.totalAmount - advanceAmount);
+    const isBalanceSettled = Boolean(o.balancePaid || balanceAmount <= 0);
+
+    const deliveryUpiUri = `upi://pay?pa=kisaandirect.escrow@icici&pn=KisaanDirect%20Official%20Escrow&am=${balanceAmount}&tn=Order%20${o.id}%20Delivery%20Balance&cu=INR`;
+    const deliveryQrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(deliveryUpiUri)}&margin=8`;
 
     return `
       <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-4">
@@ -1013,6 +1197,7 @@ function renderOrdersList() {
               <span class="font-extrabold text-slate-800 text-base">Order #${o.id}</span>
               ${statusBadge}
               ${o.isMultiFarmerPooled ? `<span class="bg-amber-200 text-amber-950 font-black text-[10px] px-2 py-0.5 rounded-full"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>AI Multi-Farmer Pooled</span>` : ''}
+              ${o.isBulk ? `<span class="bg-blue-100 text-blue-900 font-bold text-[10px] px-2 py-0.5 rounded-full border border-blue-200">Bulk Retail Order</span>` : ''}
             </div>
             <p class="text-xs text-slate-500">Placed on ${new Date(o.createdAt).toLocaleString()}</p>
           </div>
@@ -1022,16 +1207,46 @@ function renderOrdersList() {
           </div>
         </div>
 
-        <!-- Details Grid -->
+        <!-- Advance & Balance Status Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div class="bg-emerald-50/80 border border-emerald-200 p-2.5 rounded-xl flex items-center justify-between">
+            <div>
+              <div class="font-bold text-emerald-900 flex items-center">
+                <i class="fa-solid fa-shield-check text-emerald-600 mr-1.5"></i>
+                <span>40% Advance Payment (Paid via Razorpay Escrow)</span>
+              </div>
+              <div class="text-[10px] text-emerald-700 font-mono mt-0.5">Ref: ${o.advanceTxnId || 'RZP_ADV_ESCROW'}</div>
+            </div>
+            <span class="font-black text-emerald-800 text-sm">₹${advanceAmount.toLocaleString()}</span>
+          </div>
+
+          <div class="${isBalanceSettled ? 'bg-emerald-50/80 border-emerald-200' : 'bg-amber-50/80 border-amber-300'} border p-2.5 rounded-xl flex items-center justify-between">
+            <div>
+              <div class="font-bold ${isBalanceSettled ? 'text-emerald-900' : 'text-amber-900'} flex items-center">
+                <i class="fa-solid ${isBalanceSettled ? 'fa-circle-check text-emerald-600' : 'fa-qrcode text-amber-600'} mr-1.5"></i>
+                <span>60% Balance on Delivery: ${isBalanceSettled ? 'Settled ✓' : 'Due at Handover'}</span>
+              </div>
+              <div class="text-[10px] ${isBalanceSettled ? 'text-emerald-700 font-mono' : 'text-amber-700'} mt-0.5">
+                ${isBalanceSettled ? `Ref: ${o.balanceTxnId || 'UPI_BAL_ESCROW'}` : 'Pay strictly via Official App QR to Driver'}
+              </div>
+            </div>
+            <span class="font-black ${isBalanceSettled ? 'text-emerald-800' : 'text-amber-800'} text-sm">₹${balanceAmount.toLocaleString()}</span>
+          </div>
+        </div>
+
+        <!-- Details Grid with Farmer Privacy Masking -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs bg-slate-50 p-3.5 rounded-xl border">
           <div>
             <div class="text-slate-400 font-medium">Produce & Quantity:</div>
             <div class="font-bold text-slate-800 text-sm">${o.quantityKg} kg of ${o.produceName}</div>
           </div>
           <div>
-            <div class="text-slate-400 font-medium">Farmer / FPO Info:</div>
-            <div class="font-bold text-slate-800">${farmerName} (${farmerPhone})</div>
-            <div class="text-[11px] text-amber-800 font-bold">FPO: ${farmerFpo} • UPI: ${farmerUpi}</div>
+            <div class="text-slate-400 font-medium flex items-center justify-between">
+              <span>Farmer / FPO Info:</span>
+              <span class="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded">🔒 Masked</span>
+            </div>
+            <div class="font-bold text-slate-800">${farmerName} (<span class="font-mono text-slate-700">${farmerPhone}</span>)</div>
+            <div class="text-[11px] text-amber-800 font-bold">FPO: ${farmerFpo} • Escrow: <span class="font-mono text-slate-600">${farmerUpi}</span></div>
           </div>
           <div>
             <div class="text-slate-400 font-medium">Logistics & Destination:</div>
@@ -1063,7 +1278,7 @@ function renderOrdersList() {
           <div class="flex items-center justify-between text-xs text-slate-500 font-semibold mb-2">
             <span>1. SMS Alert Dispatched</span>
             <span>2. Farmer SMS Confirmation</span>
-            <span>3. Delivery OTP & UPI Settlement</span>
+            <span>3. Doorstep Balance & Delivery OTP</span>
           </div>
           <div class="flex items-center space-x-2">
             <div class="w-7 h-7 rounded-full ${step1Class} flex items-center justify-center text-xs">1</div>
@@ -1079,7 +1294,7 @@ function renderOrdersList() {
           <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs">
             <div class="text-amber-800 flex items-center space-x-2">
               <i class="fa-solid fa-mobile-retro text-base text-amber-600"></i>
-              <span>SMS has been sent to farmer's phone (${farmerPhone}).</span>
+              <span>SMS order alert dispatched to farmer's mobile (${farmerPhone}).</span>
             </div>
             <button onclick="handleSimulateFarmerSms('${o.id}', 'ACCEPT')" class="theme-primary-btn bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg shadow text-xs transition mt-2 sm:mt-0">
               <i class="fa-solid fa-check mr-1"></i> Simulate Farmer Replying "ACCEPT" via SMS
@@ -1088,24 +1303,96 @@ function renderOrdersList() {
         ` : ''}
 
         ${o.status === 'FARMER_ACCEPTED' ? `
-          <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
-            <div class="flex flex-wrap items-center justify-between text-xs border-b border-emerald-200 pb-2">
-              <div class="text-emerald-900 font-bold flex items-center space-x-2">
-                <i class="fa-solid fa-truck-ramp-box text-emerald-600 text-base"></i>
-                <span>Order In Transit! Verify Delivery with Buyer OTP:</span>
+          <div class="bg-slate-50 border-2 border-emerald-400/80 rounded-2xl p-4 md:p-5 space-y-4">
+            
+            <!-- In-Transit Alert Header -->
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+              <div class="flex items-center space-x-2 text-slate-900 font-extrabold text-sm">
+                <i class="fa-solid fa-truck-ramp-box text-emerald-600 text-lg"></i>
+                <span>Produce In Transit via ${o.transportType}</span>
               </div>
-              <div class="bg-emerald-900 text-amber-300 px-2.5 py-1 rounded-lg font-mono font-bold text-xs tracking-wider">
-                Buyer Delivery OTP: ${o.deliveryOtp}
-              </div>
+              <span class="bg-emerald-100 text-emerald-800 font-black text-xs px-2.5 py-1 rounded-full border border-emerald-300">
+                Vehicle En Route to Customer
+              </span>
             </div>
 
-            <!-- OTP Input Form -->
-            <div class="flex items-center space-x-2">
-              <input type="text" id="otp-input-${o.id}" placeholder="Enter 4-digit OTP" maxlength="4" class="bg-white border border-emerald-300 rounded-lg px-3 py-1.5 text-sm font-bold tracking-widest text-center w-36 outline-none focus:ring-2 focus:ring-emerald-500">
-              <button onclick="handleVerifyDeliveryOtp('${o.id}')" class="theme-primary-btn bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2 rounded-lg shadow transition flex items-center">
-                <i class="fa-solid fa-shield-check mr-1.5"></i> Confirm Delivery & Trigger Instant UPI Payout
-              </button>
-            </div>
+            <!-- 60% DOORSTEP BALANCE SECTION (If balance is still pending) -->
+            ${!isBalanceSettled ? `
+              <div class="space-y-3">
+                <!-- Anti-Fraud Security Warning Alert -->
+                <div class="bg-rose-50 border-2 border-rose-400 rounded-xl p-3.5 space-y-1.5 shadow-sm">
+                  <div class="flex items-center space-x-2 text-rose-900 font-extrabold text-xs uppercase tracking-wider">
+                    <i class="fa-solid fa-triangle-exclamation text-rose-600 text-base animate-pulse"></i>
+                    <span>STRICT ANTI-FRAUD RULE: DRIVER PERSONAL QR FORBIDDEN</span>
+                  </div>
+                  <p class="text-[11px] text-rose-800 font-semibold leading-relaxed">
+                    Pay the 60% balance of <strong>₹${balanceAmount.toLocaleString()}</strong> strictly via this <strong>Official In-App Dynamic Delivery QR Code</strong>.
+                    <span class="text-rose-950 font-black underline">DO NOT SCAN ANY DRIVER'S PERSONAL PHONE QR OR PAY IN CASH!</span>
+                    Personal driver payments are unverified by our system and void delivery insurance.
+                  </p>
+                </div>
+
+                <!-- Dynamic In-App Delivery QR Display Card -->
+                <div class="bg-white border-2 border-slate-900 rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4 shadow-md">
+                  <div class="p-2.5 bg-slate-50 border-2 border-slate-300 rounded-xl text-center flex-shrink-0">
+                    <img src="${deliveryQrImgUrl}" alt="Official Dynamic In-App Delivery QR" class="w-36 h-36 mx-auto object-contain">
+                    <span class="text-[9px] font-mono font-bold text-slate-500 mt-1 block">kisaandirect.escrow@icici</span>
+                  </div>
+
+                  <div class="space-y-2 flex-1 text-xs">
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <span class="font-extrabold text-slate-900 text-sm">Official In-App Delivery Balance QR</span>
+                        <div class="text-[10px] text-slate-400">Order #${o.id} • Dynamic Escrow Intent</div>
+                      </div>
+                      <span class="text-lg font-black text-emerald-700">₹${balanceAmount.toLocaleString()}</span>
+                    </div>
+
+                    <p class="text-[11px] text-slate-600">
+                      Scan with Google Pay, PhonePe, Paytm, or BHIM. Direct to platform escrow account before produce handover.
+                    </p>
+
+                    <div class="flex flex-wrap gap-2 pt-1">
+                      <button onclick="handleConfirmBalancePayment('${o.id}')" class="theme-primary-btn bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3.5 py-2 rounded-lg text-xs shadow transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>Confirm ₹${balanceAmount.toLocaleString()} Paid via Official QR</span>
+                      </button>
+                      <button onclick="openDeliveryQrModal('${o.id}', ${balanceAmount})" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-2 rounded-lg text-xs border border-slate-300 transition flex items-center space-x-1">
+                        <i class="fa-solid fa-expand"></i>
+                        <span>Full Screen QR</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Locked OTP Notice -->
+                <div class="bg-slate-100 border border-slate-300 rounded-xl p-3 flex items-center space-x-2.5 text-xs text-slate-600">
+                  <i class="fa-solid fa-lock text-slate-400 text-base"></i>
+                  <span><strong>Delivery OTP is Locked:</strong> Settle the 60% balance (₹${balanceAmount.toLocaleString()}) via the Official In-App QR above to reveal OTP and release produce handover.</span>
+                </div>
+              </div>
+            ` : `
+              <!-- Balance is Settled: OTP Handover Unlocked! -->
+              <div class="space-y-3">
+                <div class="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div class="flex items-center space-x-2 text-emerald-900 font-bold">
+                    <i class="fa-solid fa-circle-check text-emerald-600 text-base"></i>
+                    <span>Balance Settled via Official QR! (Ref: <span class="font-mono text-emerald-800">${o.balanceTxnId || 'UPI_BAL_ESCROW'}</span>). Delivery OTP Handover Authorized.</span>
+                  </div>
+                  <div class="bg-emerald-900 text-amber-300 px-3 py-1.5 rounded-lg font-mono font-bold text-sm tracking-widest shadow">
+                    Delivery OTP: ${o.deliveryOtp}
+                  </div>
+                </div>
+
+                <div class="flex items-center space-x-2 pt-1">
+                  <input type="text" id="otp-input-${o.id}" placeholder="Enter 4-digit OTP" maxlength="4" class="bg-white border-2 border-emerald-400 rounded-lg px-3 py-2 text-sm font-bold tracking-widest text-center w-40 outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm">
+                  <button onclick="handleVerifyDeliveryOtp('${o.id}')" class="theme-primary-btn bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow transition flex items-center">
+                    <i class="fa-solid fa-shield-check mr-1.5"></i> Confirm Handover & Release Farmer UPI Payout
+                  </button>
+                </div>
+              </div>
+            `}
+
           </div>
         ` : ''}
 
@@ -1115,10 +1402,11 @@ function renderOrdersList() {
               <span class="flex items-center"><i class="fa-solid fa-circle-check text-base mr-2 text-emerald-400"></i> UPI Instant Settlement Completed</span>
               <span class="font-mono text-amber-300">${o.payoutTxnId || 'UPI-SETTLED'}</span>
             </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-slate-300 pt-1">
-              <div>Amount Transferred: <strong class="text-white">₹${o.cropCost.toLocaleString()}</strong></div>
-              <div>Farmer Account VPA: <strong class="text-white font-mono">${farmerUpi}</strong></div>
-              <div>Status: <strong class="text-emerald-400">100% Settled (Zero Middlemen)</strong></div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-300 pt-1">
+              <div>Farmer Earnings: <strong class="text-white">₹${o.cropCost.toLocaleString()}</strong></div>
+              <div>Farmer UPI VPA: <strong class="text-white font-mono">${farmerUpi}</strong></div>
+              <div>Advance Escrow: <strong class="text-emerald-400 font-mono">${o.advanceTxnId || 'RZP-PAID'}</strong></div>
+              <div>Delivery Balance: <strong class="text-emerald-400 font-mono">${o.balanceTxnId || 'QR-PAID'}</strong></div>
             </div>
           </div>
         ` : ''}
