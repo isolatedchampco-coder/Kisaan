@@ -195,16 +195,21 @@
 
           <form id="order-form" onsubmit="handleCreateOrder(event)" class="space-y-4">
             
-            <!-- Selected Produce Info -->
-            <div id="selected-produce-details" class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm space-y-1 hidden">
-              <div class="font-bold text-slate-800" id="detail-crop-name">Crop Name</div>
-              <div class="text-xs text-slate-500 flex justify-between">
-                <span>Farmer: <strong id="detail-farmer-name" class="text-slate-700">--</strong></span>
-                <span>Price: <strong id="detail-crop-price" class="text-emerald-700">₹-- /kg</strong></span>
+            <!-- Selected Produce Info with Photograph -->
+            <div id="selected-produce-details" class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-sm space-y-2.5 hidden">
+              <div class="flex items-center space-x-3">
+                <img id="detail-crop-img" src="" alt="Selected Crop" class="w-14 h-14 rounded-xl object-cover border border-slate-200 shadow-sm flex-shrink-0">
+                <div class="min-w-0 flex-1">
+                  <div class="font-extrabold text-slate-900 text-sm truncate" id="detail-crop-name">Crop Name</div>
+                  <div class="text-xs text-slate-500 flex justify-between mt-0.5">
+                    <span>Farmer: <strong id="detail-farmer-name" class="text-slate-700">--</strong></span>
+                    <span>Price: <strong id="detail-crop-price" class="text-emerald-700 font-black">₹-- /kg</strong></span>
+                  </div>
+                </div>
               </div>
-              <div class="text-[11px] text-slate-500 flex items-center justify-between pt-1">
+              <div class="text-[11px] text-slate-500 flex items-center justify-between pt-2 border-t border-slate-200/80">
                 <span id="detail-fpo-badge" class="bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded-md">FPO: --</span>
-                <span id="detail-kyc-badge" class="bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded text-[10px] font-bold">KYC Verified</span>
+                <span id="detail-kyc-badge" class="bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded text-[10px] font-bold">✓ KYC Verified</span>
               </div>
             </div>
 
@@ -505,21 +510,44 @@
 
           <!-- Produce Information -->
           <div class="bg-emerald-50/60 rounded-xl p-4 border border-emerald-100 space-y-3">
-            <h4 class="text-xs font-extrabold uppercase text-emerald-800 tracking-wider">Initial Produce Listing</h4>
+            <h4 class="text-xs font-extrabold uppercase text-emerald-800 tracking-wider">Initial Produce Listing & Crop Photography</h4>
             
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
                 <label class="block text-xs font-semibold text-slate-600 mb-1">Crop / Fruit Name *</label>
                 <input type="text" id="farmer-produce-name" placeholder="e.g. Fresh Guavas" class="w-full border rounded-lg p-2 text-xs bg-white" required>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Crop Category *</label>
+                <select id="farmer-produce-category" class="w-full border rounded-lg p-2 text-xs bg-white font-medium">
+                  <option value="Vegetable">🥦 Vegetable</option>
+                  <option value="Fruit">🍎 Fruit</option>
+                  <option value="Grain">🌾 Grain & Pulses</option>
+                </select>
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-600 mb-1">Price per KG (₹) *</label>
                 <input type="number" id="farmer-produce-price" placeholder="45" class="w-full border rounded-lg p-2 text-xs bg-white font-bold text-emerald-800" required>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-600 mb-1">Available Quantity (KGs) *</label>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Available Stock (KGs) *</label>
                 <input type="number" id="farmer-produce-qty" placeholder="400" class="w-full border rounded-lg p-2 text-xs bg-white font-bold" required>
               </div>
+            </div>
+
+            <!-- Mandatory Crop / Fruit Photograph Upload for Storefront -->
+            <div class="bg-white p-3 rounded-xl border border-emerald-200/80 space-y-1">
+              <label class="block text-xs font-bold text-slate-800 flex items-center justify-between">
+                <span class="flex items-center">
+                  <i class="fa-solid fa-camera text-emerald-600 mr-1.5"></i>
+                  <span>Upload Photograph of Harvested Crop / Fruit (.jpg, .png) *</span>
+                </span>
+                <span class="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded">Required for Storefront</span>
+              </label>
+              <input type="file" id="farmer-crop-photo" name="cropPhoto" accept=".jpg,.jpeg,.png" class="w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200 cursor-pointer">
+              <p class="text-[10px] text-slate-400">
+                📸 Clear, high-resolution photograph of your harvested produce or farm trees. Displayed directly to buyers on the storefront.
+              </p>
             </div>
           </div>
 

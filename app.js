@@ -353,6 +353,24 @@ function getCropEmoji(name, category) {
   return '🥬';
 }
 
+function getCropPhotoUrl(name, category) {
+  const n = (name || '').toLowerCase();
+  const c = (category || '').toLowerCase();
+  if (n.includes('tomato')) return 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('mango')) return 'https://images.unsplash.com/photo-1553279768-865429fa0078?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('orange')) return 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('banana')) return 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('potato')) return 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('onion')) return 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('wheat') || n.includes('grain')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('rice') || n.includes('basmati')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('apple')) return 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?auto=format&fit=crop&w=600&q=80';
+  if (n.includes('guava')) return 'https://images.unsplash.com/photo-1536511135898-752b18c92582?auto=format&fit=crop&w=600&q=80';
+  if (c.includes('fruit')) return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=600&q=80';
+  if (c.includes('grain')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80';
+  return 'https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80';
+}
+
 function escapeHtml(str) {
   return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -493,9 +511,12 @@ function renderSearchDropdown() {
           class="search-dropdown-item p-3 hover:bg-emerald-50/80 cursor-pointer flex items-center justify-between transition group"
         >
           <div class="flex items-center space-x-3 min-w-0">
-            <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-lg flex-shrink-0 shadow-sm">
-              ${emoji}
-            </div>
+            <img 
+              src="${p.imageUrl || getCropPhotoUrl(p.name, p.category)}" 
+              alt="${p.name}" 
+              class="w-11 h-11 rounded-xl object-cover border border-slate-200 shadow-sm flex-shrink-0"
+              onerror="this.src='https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80'"
+            >
             <div class="min-w-0">
               <div class="flex items-center space-x-2">
                 <h5 class="font-bold text-xs text-slate-900 group-hover:text-emerald-700 truncate">
@@ -602,45 +623,75 @@ function renderProduceGrid(list = null) {
     return;
   }
 
-  container.innerHTML = itemsToRender.map(p => `
-    <div onclick="selectProduce('${p.id}')" id="card-produce-${p.id}" class="produce-card bg-white p-5 rounded-2xl shadow-sm border-2 border-slate-200 hover:border-emerald-500 cursor-pointer transition flex flex-col justify-between space-y-4">
-      <div class="space-y-2">
-        <div class="flex items-start justify-between">
-          <span class="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase">${p.category}</span>
-          <span class="text-xs text-slate-500 font-semibold"><i class="fa-solid fa-boxes-stacked text-emerald-600 mr-1"></i>${p.availableKg} kg stock</span>
-        </div>
-        <h4 class="font-extrabold text-slate-800 text-base group-hover:text-emerald-700">${p.name}</h4>
-        
-        <div class="text-xs text-slate-500 flex items-center space-x-1">
-          <i class="fa-solid fa-location-dot text-rose-500"></i>
-          <span>${p.farmerLocation || 'Nashik, Maharashtra'}</span>
+  container.innerHTML = itemsToRender.map(p => {
+    const photoUrl = p.imageUrl || getCropPhotoUrl(p.name, p.category);
+    return `
+    <div onclick="selectProduce('${p.id}')" id="card-produce-${p.id}" class="produce-card bg-white rounded-2xl shadow-sm border-2 border-slate-200 hover:border-emerald-500 hover:shadow-md cursor-pointer transition flex flex-col justify-between overflow-hidden group">
+      <div>
+        <!-- Crop Photograph Banner -->
+        <div class="relative w-full h-44 bg-slate-100 overflow-hidden">
+          <img 
+            src="${photoUrl}" 
+            alt="${p.name}" 
+            class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            onerror="this.src='https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=600&q=80'"
+            loading="lazy"
+          >
+          <div class="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-black/20"></div>
+          
+          <div class="absolute top-2.5 left-2.5">
+            <span class="bg-white/95 backdrop-blur-sm text-emerald-800 text-[10px] font-extrabold px-2.5 py-1 rounded-full shadow-sm uppercase tracking-wide">
+              ${p.category}
+            </span>
+          </div>
+
+          <div class="absolute top-2.5 right-2.5">
+            <span class="bg-slate-900/80 backdrop-blur-sm text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-sm">
+              <i class="fa-solid fa-boxes-stacked text-emerald-400 mr-1"></i>${p.availableKg} kg stock
+            </span>
+          </div>
+
+          <div class="absolute bottom-2.5 left-3 right-3 flex items-end justify-between text-white">
+            <h4 class="font-extrabold text-base text-white drop-shadow-md truncate mr-2">${p.name}</h4>
+            <span class="text-xs font-black bg-emerald-600/90 backdrop-blur-sm text-white px-2 py-0.5 rounded shadow">
+              ₹${p.pricePerKg}/kg
+            </span>
+          </div>
         </div>
 
-        <div class="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border space-y-1">
-          <div class="flex items-center justify-between">
-            <span>Farmer: <strong class="text-slate-800">${p.farmerName}</strong></span>
-            <span class="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">${p.uniqueFarmerId}</span>
+        <div class="p-4 space-y-3">
+          <div class="text-xs text-slate-500 flex items-center space-x-1">
+            <i class="fa-solid fa-location-dot text-rose-500"></i>
+            <span class="truncate">${p.farmerLocation || 'Nashik, Maharashtra'}</span>
           </div>
-          <div class="flex items-center justify-between text-[11px]">
-            <span class="bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded text-[10px] font-bold">
-              🌾 ${p.fpoAffiliation || 'Independent Farmer'}
-            </span>
-            <span class="text-emerald-700 font-bold text-[10px]">✓ KYC Verified</span>
+
+          <div class="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="truncate mr-1">Farmer: <strong class="text-slate-800">${p.farmerName}</strong></span>
+              <span class="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded flex-shrink-0">${p.uniqueFarmerId}</span>
+            </div>
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded text-[10px] font-bold truncate mr-1">
+                🌾 ${p.fpoAffiliation || 'Independent Farmer'}
+              </span>
+              <span class="text-emerald-700 font-bold text-[10px] flex-shrink-0">✓ KYC Verified</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="border-t pt-3 flex items-center justify-between">
+      <div class="px-4 pb-4 border-t pt-3 flex items-center justify-between">
         <div>
           <span class="text-2xl font-black text-emerald-700">₹${p.pricePerKg}</span>
           <span class="text-xs text-slate-400 font-medium">/ kg</span>
         </div>
-        <button class="bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-200 transition">
+        <button class="bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-200 transition">
           Select Crop
         </button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   if (itemsToRender.length > 0 && (!selectedProduce || !itemsToRender.find(x => x.id === selectedProduce.id))) {
     selectProduce(itemsToRender[0].id);
@@ -668,6 +719,13 @@ function selectProduce(produceId) {
   document.getElementById('detail-crop-price').innerText = `₹${p.pricePerKg} /kg`;
   document.getElementById('single-stock-notice').innerText = `Single Farm Stock: ${p.availableKg} kg`;
   document.getElementById('selected-produce-details').classList.remove('hidden');
+
+  // Update photograph preview in Configure Order card
+  const imgEl = document.getElementById('detail-crop-img');
+  if (imgEl) {
+    imgEl.src = p.imageUrl || getCropPhotoUrl(p.name, p.category);
+    imgEl.alt = p.name;
+  }
 
   handleQuantityInputChange();
 }
@@ -1037,7 +1095,11 @@ async function handleRegisterFarmer(e) {
 
   const kycFileInput = document.getElementById('farmer-kyc-file');
   const farmPhotoInput = document.getElementById('farmer-farm-photo');
-  const hasFiles = (kycFileInput && kycFileInput.files.length > 0) || (farmPhotoInput && farmPhotoInput.files.length > 0);
+  const cropPhotoInput = document.getElementById('farmer-crop-photo');
+  const produceCategory = document.getElementById('farmer-produce-category')?.value || 'Vegetable';
+  const hasFiles = (kycFileInput && kycFileInput.files.length > 0) || 
+                   (farmPhotoInput && farmPhotoInput.files.length > 0) || 
+                   (cropPhotoInput && cropPhotoInput.files.length > 0);
 
   try {
     let res;
@@ -1048,12 +1110,14 @@ async function handleRegisterFarmer(e) {
       formData.append('location', location);
       formData.append('upiId', upiId);
       formData.append('produceName', produceName);
+      formData.append('category', produceCategory);
       formData.append('pricePerKg', pricePerKg);
       formData.append('availableKg', availableKg);
       formData.append('kycDocType', kycType);
       if (finalFpo) formData.append('fpoAffiliation', finalFpo);
       if (kycFileInput && kycFileInput.files[0]) formData.append('kycDoc', kycFileInput.files[0]);
       if (farmPhotoInput && farmPhotoInput.files[0]) formData.append('farmPhoto', farmPhotoInput.files[0]);
+      if (cropPhotoInput && cropPhotoInput.files[0]) formData.append('cropPhoto', cropPhotoInput.files[0]);
 
       res = await fetch('/api/farmers/register-with-docs', {
         method: 'POST',
@@ -1069,6 +1133,7 @@ async function handleRegisterFarmer(e) {
           location,
           upiId,
           produceName,
+          category: produceCategory,
           pricePerKg,
           availableKg,
           kycDocType: kycType,
@@ -1079,7 +1144,7 @@ async function handleRegisterFarmer(e) {
 
     const result = await res.json();
     if (result.success) {
-      alert(`🎉 Farmer ${name} registered successfully! Assigned Unique Farmer ID: ${result.farmer.uniqueFarmerId}. FPO: ${result.farmer.fpoAffiliation || 'Independent'}. KYC Documents Saved in Database!`);
+      alert(`🎉 Farmer ${name} registered successfully! Assigned Unique Farmer ID: ${result.farmer.uniqueFarmerId}. FPO: ${result.farmer.fpoAffiliation || 'Independent'}. KYC Documents & Crop Photo Saved in Database!`);
       fetchProduce();
       fetchFarmers();
       switchTab('buyer');
